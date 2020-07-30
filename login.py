@@ -9,7 +9,7 @@ import textwrap
 import logzero
 from logzero import logger
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from gpsaml.duo_mfa import authn_duo_mfa
 from gpsaml.html_parsers import (
     form_to_dict,
@@ -23,7 +23,7 @@ def main(args):
     """
     The main entrypoint.
     """
-    logzero.loglevel(logging.DEBUG)
+    logzero.loglevel(getattr(logging, args.log_level))
     s = requests.Session()
     prelogin_endpoint = args.prelogin
     resp = make_saml_request(s, prelogin_endpoint)
@@ -32,8 +32,13 @@ def main(args):
     duo_factor = "webauthn"
     resp = authn_duo_mfa(s, resp, duo_device=duo_device, duo_factor=duo_factor)
     resp = send_saml_response_to_globalprotect(s, resp)
-    print(resp.text)
-    print(resp.headers)
+    p = urlparse(prelogin_endpoint)
+    host = p.netloc.split(":")[0]
+    user = resp.headers["saml-username"]
+    cookie = resp.headers["prelogin-cookie"]
+    exports = dict(HOST=host, USER=user, COOKIE=cookie)
+    for key, value in exports.items():
+        print("export {}={}".format(key, value))
 
 
 def make_saml_request(s, prelogin_endpoint):
@@ -102,5 +107,12 @@ if __name__ == "__main__":
         "username",                                                                                                                                                                    
         action="store",                                                                                                                                                                
         help="The username used to log in.")
+    parser.add_argument(                                                                                                                                                               
+        "-l",
+        "--log-level",
+        action="store",                                                                                                                                                                
+        default="INFO",
+        choices=["ERROR", "WARN", "INFO", "DEBUG"],
+        help="The log level to use.")
     args = parser.parse_args()                                                                                                                                                         
     main(args)
