@@ -28,17 +28,29 @@ def main(args):
     prelogin_endpoint = args.prelogin
     resp = make_saml_request(s, prelogin_endpoint)
     resp = authn_user_passwd(s, resp, args.username)
-    duo_device = "WA5NXAL405S765X5WJFA"
-    duo_factor = "webauthn"
-    resp = authn_duo_mfa(s, resp, duo_device=duo_device, duo_factor=duo_factor)
+    duo_factor, duo_device = parse_duo_opts(args.duo_mfa)
+    if duo_factor is not None:
+        resp = authn_duo_mfa(s, resp, duo_device=duo_device, duo_factor=duo_factor)
     resp = send_saml_response_to_globalprotect(s, resp)
+    logger.debug("Response:\n{}".format(resp.text))
+    logger.debug("Headers: {}".format(resp.headers))
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]
     user = resp.headers["saml-username"]
     cookie = resp.headers["prelogin-cookie"]
-    exports = dict(HOST=host, USER=user, COOKIE=cookie)
+    exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
     for key, value in exports.items():
         print("export {}={}".format(key, value))
+
+
+def parse_duo_opts(duo_mfa):
+    """
+    Parse Duo MFA options and return duo_factor, duo_device.
+    """
+    if duo_mfa is None:
+        return None, None
+    parts = tuple(duo_mfa.split(":", 1))
+    return parts
 
 
 def make_saml_request(s, prelogin_endpoint):
@@ -114,5 +126,9 @@ if __name__ == "__main__":
         default="INFO",
         choices=["ERROR", "WARN", "INFO", "DEBUG"],
         help="The log level to use.")
+    parser.add_argument(                                                                                                                                                               
+        "--duo-mfa",
+        action="store",                                                                                                                                                                
+        help="Duo MFA options.  E.g. `webauthn:DEVICE-ID` or `Duo Push:phone1`.")
     args = parser.parse_args()                                                                                                                                                         
     main(args)
