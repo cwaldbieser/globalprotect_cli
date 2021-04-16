@@ -169,6 +169,10 @@ def _perform_duo_mfa_flow(session, login_url, response, duo_device, duo_factor):
             logger.debug("DUO status code == 'pushed'")
             time.sleep(duo_poll_seconds)
             continue
+        elif status_code in ('calling', 'answered'):
+            logger.debug("DUO status code == 'calling'")
+            time.sleep(duo_poll_seconds)
+            continue
         elif status_code == 'allow':
             logger.debug("DUO status code == 'allow'")
             result_url = response.get('response', {}).get('result_url')
