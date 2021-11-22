@@ -43,7 +43,7 @@ and your username.  It must have permission to run the openconnect software
 (i.e. you might need to run as root).  Your OpenConnect client must be modern
 enough to support the "gp" protocol.
 
-.. code::bash
+.. code:: shell
 
     #! /bin/bash
 
