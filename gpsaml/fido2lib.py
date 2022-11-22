@@ -122,10 +122,13 @@ def present_challenge_to_authenticator(webauthn_cred_req_opts, origin='"https://
         allow_credentials=allow_creds_reps,
         user_verification=uv,
     ))
-    assertions, client_data = client.get_assertion(request_options["publicKey"], pin=pin)
+    # assertions, client_data = client.get_assertion(request_options["publicKey"], pin=pin)
+    selection = client.get_assertion(request_options["publicKey"])
+    assertions = selection.get_assertions()
     assertion = assertions[0]  # Only one cred in allowCredentials, only one response.
+    authenticator_assertion_response = selection.get_response(0)
     logger.debug("ASSERTION DATA:", assertion)
     logger.info("FIDO2 Authenticator successfully validated challenge.")
-    return assertion, client_data
+    return assertion, authenticator_assertion_response.client_data
 
 
