@@ -1,21 +1,17 @@
 #! /usr/bin/env python
 
 import argparse
-import base64
-import datetime
 import getpass
 import logging
-import textwrap
-import logzero
-from logzero import logger
-import requests
 from urllib.parse import urljoin, urlparse
+
+import logzero
+import requests
+from logzero import logger
+
 from gpsaml.duo_mfa import authn_duo_mfa
-from gpsaml.html_parsers import (
-    form_to_dict,
-    get_form_from_html,
-    get_form_from_response,
-)
+from gpsaml.html_parsers import (form_to_dict, get_form_from_html,
+                                 get_form_from_response)
 from gpsaml.xml_parser import parse_prelogin
 
 
@@ -61,7 +57,7 @@ def make_saml_request(s, prelogin_endpoint):
     html_str = parse_prelogin(resp.text)
     form = get_form_from_html(html_str, form_id="myform")
     payload = form_to_dict(form)
-    form_action = form.attrib['action']
+    form_action = form.attrib["action"]
     resp = s.post(form_action, data=payload)
     return resp
 
@@ -75,7 +71,7 @@ def send_saml_response_to_globalprotect(s, resp):
     logger.debug("Form URL: {}".format(form_url))
     form_action = urljoin(
         form_url,
-        form.attrib.get('action', ''),
+        form.attrib.get("action", ""),
     )
     payload = form_to_dict(form)
     logger.debug("POSTing SAMLResponse to `{}` ...".format(form_action))
@@ -94,41 +90,39 @@ def authn_user_passwd(s, resp, username):
     logger.debug("Form URL: {}".format(form_url))
     form_action = urljoin(
         form_url,
-        form.attrib.get('action', ''),
+        form.attrib.get("action", ""),
     )
     payload = {}
     for tag in form.findall(".//input"):
-        key = tag.attrib['name']
-        value = tag.attrib.get('value', '')
+        key = tag.attrib["name"]
+        value = tag.attrib.get("value", "")
         payload[key] = value
     logger.debug("Unfilled form fields: {}".format(payload))
     payload["username"] = username
     passwd = getpass.getpass()
     payload["password"] = passwd
-    resp = s.post(form_action, data=payload)    
+    resp = s.post(form_action, data=payload)
     return resp
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SAML Login via CLI.")                                                                                                   
-    parser.add_argument(                                                                                                                                                               
-        "prelogin",                                                                                                                                                                    
-        action="store",                                                                                                                                                                
-        help="The GlobalProtect prelogin.esp endpoint.")
-    parser.add_argument(                                                                                                                                                               
-        "username",                                                                                                                                                                    
-        action="store",                                                                                                                                                                
-        help="The username used to log in.")
-    parser.add_argument(                                                                                                                                                               
+    parser = argparse.ArgumentParser(description="SAML Login via CLI.")
+    parser.add_argument(
+        "prelogin", action="store", help="The GlobalProtect prelogin.esp endpoint."
+    )
+    parser.add_argument("username", action="store", help="The username used to log in.")
+    parser.add_argument(
         "-l",
         "--log-level",
-        action="store",                                                                                                                                                                
+        action="store",
         default="INFO",
         choices=["ERROR", "WARN", "INFO", "DEBUG"],
-        help="The log level to use.")
-    parser.add_argument(                                                                                                                                                               
+        help="The log level to use.",
+    )
+    parser.add_argument(
         "--duo-mfa",
-        action="store",                                                                                                                                                                
-        help="Duo MFA options.  E.g. `webauthn:DEVICE-ID` or `Duo Push:phone1`.")
-    args = parser.parse_args()                                                                                                                                                         
+        action="store",
+        help="Duo MFA options.  E.g. `webauthn:DEVICE-ID` or `Duo Push:phone1`.",
+    )
+    args = parser.parse_args()
     main(args)

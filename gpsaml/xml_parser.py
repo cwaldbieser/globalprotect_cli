@@ -1,4 +1,3 @@
-
 import base64
 import xml.etree.cElementTree as ET
 
@@ -10,6 +9,4 @@ def parse_prelogin(xml_str):
     """
     xml_node = ET.fromstring(xml_str)
     saml_req = xml_node.find(".//saml-request")
-    return base64.b64decode(saml_req.text.encode('utf-8')).decode('utf-8')
-
-
+    return base64.b64decode(saml_req.text.encode("utf-8")).decode("utf-8")
