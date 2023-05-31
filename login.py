@@ -21,19 +21,28 @@ def main(args):
     """
     logzero.loglevel(getattr(logging, args.log_level))
     s = requests.Session()
-    prelogin_endpoint = args.prelogin
-    resp = make_saml_request(s, prelogin_endpoint)
-    resp = authn_user_passwd(s, resp, args.username)
+    if not args.test_auth_endpoint:
+        prelogin_endpoint = args.prelogin
+        saml_resp = make_saml_request(s, prelogin_endpoint)
+    else:
+        saml_resp = make_authn_request(s, args.test_auth_endpoint)
+
+    authn_resp = authn_user_passwd(s, saml_resp, args.username)
     duo_factor, duo_device = parse_duo_opts(args.duo_mfa)
     if duo_factor is not None:
-        resp = authn_duo_mfa(s, resp, duo_device=duo_device, duo_factor=duo_factor)
-    resp = send_saml_response_to_globalprotect(s, resp)
-    logger.debug("Response:\n{}".format(resp.text))
-    logger.debug("Headers: {}".format(resp.headers))
+        authn_resp = authn_duo_mfa(
+            s, authn_resp, duo_device=duo_device, duo_factor=duo_factor
+        )
+    if args.test_auth_endpoint:
+        print(authn_resp)
+        return
+    gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
+    logger.debug("Response:\n{}".format(gp_resp.text))
+    logger.debug("Headers: {}".format(gp_resp.headers))
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]
-    user = resp.headers["saml-username"]
-    cookie = resp.headers["prelogin-cookie"]
+    user = gp_resp.headers["saml-username"]
+    cookie = gp_resp.headers["prelogin-cookie"]
     exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
     for key, value in exports.items():
         print("export {}={}".format(key, value))
@@ -59,6 +68,15 @@ def make_saml_request(s, prelogin_endpoint):
     payload = form_to_dict(form)
     form_action = form.attrib["action"]
     resp = s.post(form_action, data=payload)
+    return resp
+
+
+def make_authn_request(s, auth_endpoint):
+    """
+    For development.
+    Make an initial request of the authN endpoint.
+    """
+    resp = s.get(auth_endpoint)
     return resp
 
 
@@ -123,6 +141,12 @@ if __name__ == "__main__":
         "--duo-mfa",
         action="store",
         help="Duo MFA options.  E.g. `webauthn:DEVICE-ID` or `Duo Push:phone1`.",
+    )
+    parser.add_argument(
+        "-t",
+        "--test-auth-endpoint",
+        action="store",
+        help="Test authentication endpoint, used for development.",
     )
     args = parser.parse_args()
     main(args)
