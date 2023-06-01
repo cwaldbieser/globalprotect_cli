@@ -94,7 +94,7 @@ def present_challenge_to_authenticator(
     for entry in webauthn_cred_req_opts["allowCredentials"]:
         cred_type = entry["type"]
         cred_id = entry["id"]
-        transports = list(entry["transports"])
+        transports = list(entry.get("transports", []))
         pubkey_cred_descriptor = webauthn.PublicKeyCredentialDescriptor(
             type=cred_type,
             id=decode_base64(cred_id),

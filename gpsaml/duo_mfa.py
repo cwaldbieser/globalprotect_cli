@@ -2,10 +2,12 @@ import base64
 import getpass
 import json
 import struct
+import sys
 import time
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse, urlunparse
 
 from logzero import logger
+from rich import inspect
 
 from .fido2lib import present_challenge_to_authenticator
 from .html_parsers import FrameParser, form_to_dict, get_form_from_response
@@ -18,10 +20,21 @@ def authn_duo_mfa(session, response, duo_device, duo_factor):
     """
     Process Duo MFA flow.
     """
+    # TODO - params need modification for universal prompt
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
     logger.debug("DUO login_url: {}".format(login_url))
-    form_node = get_form_from_response(response, form_id="duo_form")
+    p = urlparse(login_url)
+    # params include `sid` and `tx` (a JWT).
+    params = parse_qs(p.query)
+    inspect(params)
+    # Form includes `_xsrf` token.
+    form_node = get_form_from_response(response, form_id="plugin_form")
+    form_data = form_to_dict(form_node)
+    inspect(form_data)
+    # At this point, have the sid, tx, _xsrf
+    _perform_duo_universal_prompt_flow(session, p, params, form_data)
+    sys.exit(1)
     signed_duo_response, app = _perform_duo_mfa_flow(
         session, login_url, response, duo_device, duo_factor
     )
@@ -36,6 +49,266 @@ def authn_duo_mfa(session, response, duo_device, duo_factor):
     response = session.post(login_url, data=payload)
     logger.info("DUO MFA flow complete.")
     return response
+
+
+def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_data):
+    """
+    Perform the Duo Universal Prompt flow.
+    """
+    sid = url_params["sid"]
+    xsrf_token = form_data["_xsrf"]
+    _start_duo_oidc_flow(session, parsed_url, form_data, url_params)
+    _configure_duo_universal_prompt_flow(session, parsed_url, sid)
+    # TODO: hard-coding webauthn factor
+    factor = "WebAuthn Security Key"
+    device = "null"
+    device_key = ""
+    txid = _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor, device)
+    wcro = _get_webauth_credential_request_options(session, parsed_url, sid, txid)
+    inspect(wcro)
+    session_id = wcro["sessionId"]
+    origin = _create_webauthn_origin(parsed_url)
+    assertion, client_data = present_challenge_to_authenticator(wcro, origin)
+    inspect(assertion)
+    inspect(client_data)
+    txid = _submit_duo_webauthn_response_data(
+        session, parsed_url, sid, session_id, assertion, client_data
+    )
+    _complete_webauthn(session, parsed_url, sid, txid)
+    _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, device_key)
+
+
+def _start_duo_oidc_flow(session, parsed_url, form_data, url_params):
+    """
+    Start the Duo OIDC flow.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            parsed_url.path,
+            parsed_url.params,
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt start OIDC url: {url}")
+    resp = session.post(url, params=url_params, data=form_data)
+    inspect(resp)
+
+
+def _configure_duo_universal_prompt_flow(session, parsed_url, sid):
+    """
+    API call for getting information used to configure the universal prompt?
+    May not strictly be necessary if you already know what options you are going to use.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/auth/prompt/data",
+            "",
+            "",
+            "",
+        )
+    )
+    params = {
+        "post_auth_action": "OIDC_EXIT",
+        "sid": sid,
+    }
+    logger.debug(f"Duo universal prompt request #2 url: {url}")
+    resp = session.get(url, params=params)
+    logger.debug(f"Duo universal prompt response #2 url: {resp.url}")
+    inspect(resp)
+
+
+def _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, device_key):
+    """
+    Complete Duo OIDC and redirect back to web SSO with the tokens we were
+    looking for as query parameters.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/oidc/exit",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt OIDC completion url: {url}")
+    form_data = {
+        "sid": sid,
+        "txid": txid,
+        "factor": factor,
+        "device_key": device_key,
+        "_xsrf": xsrf_token,
+        "dampen_choice": "false",
+    }
+    inspect(form_data)
+    resp = session.post(url, data=form_data)
+    logger.debug(f"Duo OIDC completion response URL: {resp.url}")
+
+
+def _complete_webauthn(session, parsed_url, sid, txid):
+    """
+    Complete the WebAuthN flow.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/status",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt webauthn completion url: {url}")
+    form_data = {
+        "sid": sid,
+        "txid": txid,
+    }
+    inspect(form_data)
+    resp = session.post(url, data=form_data)
+    inspect(resp)
+    api_resp = resp.json()
+    inspect(api_resp)
+
+
+def _submit_duo_webauthn_response_data(
+    session, parsed_url, sid, session_id, assertion, client_data
+):
+    """
+    Submit the webauthn response data from security key or other webauthn device.
+    Returns a transaction ID on success.
+    """
+    response_data = _create_webauthn_response_from_assertion(
+        session_id, assertion, client_data
+    )
+    form_data = {
+        "response_data": response_data,
+        "device": "webauthn_credential",
+        "factor": "webauthn_finish",
+        "postAuthDestination": "OIDC_EXIT",
+        "sid": sid,
+    }
+    inspect(form_data)
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/prompt",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt webauthn response submission url: {url}")
+    resp = session.post(url, data=form_data)
+    inspect(resp)
+    api_resp = resp.json()
+    inspect(api_resp)
+    return api_resp["response"]["txid"]
+
+
+def _create_webauthn_response_from_assertion(session_id, assertion, client_data):
+    """
+    Create WebAuthN response data from an assertion.
+    """
+    auth_data = assertion.auth_data
+    b64_cred_id = (
+        base64.urlsafe_b64encode(assertion.credential["id"]).decode("utf-8").rstrip("=")
+    )
+    response_data = json.dumps(
+        dict(
+            sessionId=session_id,
+            id=b64_cred_id,
+            rawId=b64_cred_id,
+            type=assertion.credential["type"],
+            authenticatorData=base64.urlsafe_b64encode(
+                auth_data.rp_id_hash
+                + struct.pack(">BI", auth_data.flags, auth_data.counter)
+            ).decode("utf-8"),
+            clientDataJSON=client_data.b64,
+            signature=assertion.signature.hex(),
+        )
+    )
+    return response_data
+
+
+def _create_webauthn_origin(parsed_url):
+    """
+    Create a WebAuthN origin from the API URL.
+    """
+    origin = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "",
+            "",
+            "",
+            "",
+        )
+    )
+    return origin
+
+
+def _get_webauth_credential_request_options(session, parsed_url, sid, txid):
+    """
+    Get the webauth credential request options.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/status",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt webauthn credential request options url: {url}")
+    form_data = {
+        "txid": txid,
+        "sid": sid,
+    }
+    inspect(form_data)
+    resp = session.post(url, data=form_data)
+    inspect(resp)
+    api_resp = resp.json()
+    inspect(api_resp)
+    return api_resp["response"]["webauthn_credential_request_options"]
+
+
+def _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor, device):
+    """
+    Submit the choice of 2nd factor to the Duo service.
+    Returns a transaction ID used in a subsequent flow.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/prompt",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt 2nd factor submission url: {url}")
+    form_data = {
+        "device": device,
+        "factor": factor,
+        "sid": sid,
+    }
+    inspect(form_data)
+    resp = session.post(url, data=form_data)
+    inspect(resp)
+    api_resp = resp.json()
+    inspect(api_resp)
+    return api_resp["response"]["txid"]
 
 
 def _perform_duo_mfa_flow(session, login_url, response, duo_device, duo_factor):

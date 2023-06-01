@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlparse
 import logzero
 import requests
 from logzero import logger
+from rich import inspect
 
 from gpsaml.duo_mfa import authn_duo_mfa
 from gpsaml.html_parsers import (form_to_dict, get_form_from_html,
@@ -20,13 +21,13 @@ def main(args):
     The main entrypoint.
     """
     logzero.loglevel(getattr(logging, args.log_level))
+    print(f"Log level set to {args.log_level}.")
     s = requests.Session()
     if not args.test_auth_endpoint:
         prelogin_endpoint = args.prelogin
         saml_resp = make_saml_request(s, prelogin_endpoint)
     else:
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
-
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
     duo_factor, duo_device = parse_duo_opts(args.duo_mfa)
     if duo_factor is not None:
@@ -34,7 +35,6 @@ def main(args):
             s, authn_resp, duo_device=duo_device, duo_factor=duo_factor
         )
     if args.test_auth_endpoint:
-        print(authn_resp)
         return
     gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
     logger.debug("Response:\n{}".format(gp_resp.text))

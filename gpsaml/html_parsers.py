@@ -2,6 +2,8 @@ import xml.etree.cElementTree as ET
 from html import escape
 from html.parser import HTMLParser
 
+from rich import inspect
+
 
 class FormParserError(Exception):
     pass
