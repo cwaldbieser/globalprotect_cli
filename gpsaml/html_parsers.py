@@ -2,14 +2,8 @@ import xml.etree.cElementTree as ET
 from html import escape
 from html.parser import HTMLParser
 
-from rich import inspect
-
 
 class FormParserError(Exception):
-    pass
-
-
-class FrameParserError(Exception):
     pass
 
 
@@ -69,45 +63,6 @@ class FormParser(HTMLParser):
         # instead of just raising an exception for some silly reason,
         # so we have to implement it.
         raise FormParserError(message)
-
-
-class FrameParser(HTMLParser):
-    def __init__(self):
-        """
-        Parse an HTML Frame.
-        """
-        HTMLParser.__init__(self)
-        self.frames = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "iframe":
-            self.frames.append(dict(attrs))
-
-    def error(self, message):
-        # ParserBase, the parent of HTMLParser, defines this abstract method
-        # instead of just raising an exception for some silly reason,
-        # so we have to implement it.
-        raise FrameParserError(message)
-
-    def process_frames(self, html):
-        self.feed(html)
-        self.close()
-        return list(self.frames)
-
-    def get_frame_by_id(self, frame_id):
-        """
-        Return frame with id `frame_id`.
-        Raise exception if not found.
-        """
-        frames = self.frames
-        found = False
-        for frame in frames:
-            if frame.get("id") == frame_id:
-                found = True
-                break
-        if not found:
-            raise Exception("Could not find `{}`.".format(frame))
-        return frame
 
 
 def get_form_from_response(resp, form_index=None, form_id=None):

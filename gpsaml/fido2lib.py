@@ -4,7 +4,6 @@ import base64
 import io
 import os
 import sys
-# from getpass import getpass
 
 from fido2 import webauthn
 from fido2.client import Fido2Client, WindowsClient
