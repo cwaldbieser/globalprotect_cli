@@ -1,86 +1,94 @@
+##################################
+ GlobalProtext SAML CLI interface
+##################################
 
-GlobalProtext SAML CLI interface
-================================
+**************
+ Installation
+**************
 
-Installation
-------------
-
-Uses `pipenv` to create Python virtual environment and track dependencies.
+Uses `pipenv` to create Python virtual environment and track
+dependencies.
 
 .. code:: shell
 
-    $ pipenv install
+   $ pipenv install
 
 Installing `pipenv`
-"""""""""""""""""""
+===================
 
-If you are unfamiliar with `pipenv`, the docs are at https://pipenv.pypa.io/en/latest/ .
-In brief, if you run:
+If you are unfamiliar with `pipenv`, the docs are at
+https://pipenv.pypa.io/en/latest/ . In brief, if you run:
 
-.. code::bash
+..
+   code::bash
 
    $ pip install --user pipenv
 
-This will install `pipenv` at ~/.local/bin/pipenv for the current user on most
-Linux systems.
+This will install `pipenv` at ~/.local/bin/pipenv for the current user
+on most Linux systems.
 
+*********
+ Duo MFA
+*********
 
+This script supports using the following Duo MFA authentication methods.
+All methods assume you are using the Duo Universal Prompt.
 
-Example Usage
--------------
+-  WebAuthn
+-  Duo Push
 
-.. code:: shell
-
-    $ eval $(pipenv run ./login.py https://globalprotect.lafayette.edu/ssl-vpn/prelogin.esp waldbiec -l ERROR)
-    $ echo "$COOKIE" | openconnect --protocol=gp -u "$VPN_USER" --passwd-on-stdin "https://$VPN_HOST/gateway:prelogin-cookie"
-
-
-Sample Script
--------------
-
-Below is a sample script that takes 2 arguments-- your GlobalProtect base URL
-and your username.  It must have permission to run the openconnect software
-(i.e. you might need to run as root).  Your OpenConnect client must be modern
-enough to support the "gp" protocol.
+***************
+ Example Usage
+***************
 
 .. code:: shell
 
-    #! /bin/bash
+   $ eval $(pipenv run ./login.py https://globalprotect.lafayette.edu/ssl-vpn/prelogin.esp waldbiec -l ERROR)
+   $ echo "$COOKIE" | openconnect --protocol=gp -u "$VPN_USER" --passwd-on-stdin "https://$VPN_HOST/gateway:prelogin-cookie"
 
-    # Requires Python 3.x
-    # Set this to the full path of your pipenv executable.
-    PIPENV=/root/.local/bin/pipenv
-    # Set this to the folder where this project is located.
-    GP_CLI_SOFTWARE_DIR=/opt/globalprotect_cli
+***************
+ Sample Script
+***************
 
-    function usage
-    {
-        echo "Usage: $0 GP_ENDPOINT SSO_USER" >&2
-    }
+Below is a sample script that takes 2 arguments-- your GlobalProtect
+base URL and your username. It must have permission to run the
+openconnect software (i.e. you might need to run as root). Your
+OpenConnect client must be modern enough to support the "gp" protocol.
 
-    GP_ENDPOINT="$1"
-    SSO_USER="$2"
-    if [ -z $GP_ENDPOINT ]; then
-        usage
-        exit 1
-    fi
-    if [ -z $SSO_USER ]; then
-        usage
-        exit 1
-    fi
+.. code:: shell
 
-    # Set this to your Duo MFA options.
-    # If using the default phone and Duo push, the options are as shown below.
-    DUO_OPTS="Duo Push:phone1"
-    PRELOGIN="$GP_ENDPOINT/ssl-vpn/prelogin.esp"
-    cd "$GP_CLI_SOFTWARE_DIR"
-    eval $($PIPENV run ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa "$DUO_OPTS" -l ERROR)
-    echo "VPN_HOST: $VPN_HOST"
-    echo "VPN_USER: $VPN_USER"
-    echo "COOKIE:   $COOKIE"
-    # You can comment out these last 2 lines if you just want to test that
-    # authentication works.  Once you get a cookie back in your output,
-    # uncomment these lines to actually log into the VPN.
-    PREAUTH_ENDPOINT="https://$VPN_HOST/gateway:prelogin-cookie"
-    echo "$COOKIE" | openconnect --protocol=gp -u "$VPN_USER" --passwd-on-stdin "$PREAUTH_ENDPOINT"
+   #! /bin/bash
 
+   # Requires Python 3.x
+   # Set this to the full path of your pipenv executable.
+   PIPENV=/root/.local/bin/pipenv
+   # Set this to the folder where this project is located.
+   GP_CLI_SOFTWARE_DIR=/opt/globalprotect_cli
+
+   function usage
+   {
+       echo "Usage: $0 GP_ENDPOINT SSO_USER" >&2
+   }
+
+   GP_ENDPOINT="$1"
+   SSO_USER="$2"
+   if [ -z $GP_ENDPOINT ]; then
+       usage
+       exit 1
+   fi
+   if [ -z $SSO_USER ]; then
+       usage
+       exit 1
+   fi
+
+   PRELOGIN="$GP_ENDPOINT/ssl-vpn/prelogin.esp"
+   cd "$GP_CLI_SOFTWARE_DIR"
+   eval $($PIPENV run ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa -l ERROR)
+   echo "VPN_HOST: $VPN_HOST"
+   echo "VPN_USER: $VPN_USER"
+   echo "COOKIE:   $COOKIE"
+   # You can comment out these last 2 lines if you just want to test that
+   # authentication works.  Once you get a cookie back in your output,
+   # uncomment these lines to actually log into the VPN.
+   PREAUTH_ENDPOINT="https://$VPN_HOST/gateway:prelogin-cookie"
+   echo "$COOKIE" | openconnect --protocol=gp -u "$VPN_USER" --passwd-on-stdin "$PREAUTH_ENDPOINT"
