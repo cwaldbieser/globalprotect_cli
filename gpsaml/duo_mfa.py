@@ -9,8 +9,8 @@ from urllib.parse import parse_qs, quote_plus, urljoin, urlparse, urlunparse
 from logzero import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import FuzzyWordCompleter
-from rich import inspect
 
+from .debugging import inspect
 from .fido2lib import present_challenge_to_authenticator
 from .html_parsers import FrameParser, form_to_dict, get_form_from_response
 
