@@ -29,11 +29,8 @@ def main(args):
     else:
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
-    duo_factor, duo_device = parse_duo_opts(args.duo_mfa)
-    if duo_factor is not None:
-        authn_resp = authn_duo_mfa(
-            s, authn_resp, duo_device=duo_device, duo_factor=duo_factor
-        )
+    if args.duo_mfa:
+        authn_resp = authn_duo_mfa(s, authn_resp)
     if args.test_auth_endpoint:
         return
     gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
@@ -46,16 +43,6 @@ def main(args):
     exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
     for key, value in exports.items():
         print("export {}={}".format(key, value))
-
-
-def parse_duo_opts(duo_mfa):
-    """
-    Parse Duo MFA options and return duo_factor, duo_device.
-    """
-    if duo_mfa is None:
-        return None, None
-    parts = tuple(duo_mfa.split(":", 1))
-    return parts
 
 
 def make_saml_request(s, prelogin_endpoint):
@@ -139,8 +126,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--duo-mfa",
-        action="store",
-        help="Duo MFA options.  E.g. `webauthn:DEVICE-ID` or `Duo Push:phone1`.",
+        action="store_true",
+        help="Use Duo MFA",
     )
     parser.add_argument(
         "-t",

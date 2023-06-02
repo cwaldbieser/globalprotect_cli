@@ -2,12 +2,13 @@ import base64
 import getpass
 import json
 import struct
-import sys
 import time
+from enum import Enum
 from urllib.parse import parse_qs, quote_plus, urljoin, urlparse, urlunparse
 
 from logzero import logger
 from rich import inspect
+from rich.prompt import Prompt
 
 from .fido2lib import present_challenge_to_authenticator
 from .html_parsers import FrameParser, form_to_dict, get_form_from_response
@@ -16,11 +17,16 @@ DUO_POLL_SECONDS = 10
 DUO_AUTH_VERSION = "2.6"
 
 
-def authn_duo_mfa(session, response, duo_device, duo_factor):
+class DuoAuthnFactor(Enum):
+    WEBAUTHN = "WebAuthn Security Key"
+    DUO_PUSH = "Duo Push"
+
+
+def authn_duo_mfa(session, response):
     """
     Process Duo MFA flow.
+    Returns the final response of the flow.
     """
-    # TODO - params need modification for universal prompt
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
     logger.debug("DUO login_url: {}".format(login_url))
@@ -33,37 +39,101 @@ def authn_duo_mfa(session, response, duo_device, duo_factor):
     form_data = form_to_dict(form_node)
     inspect(form_data)
     # At this point, have the sid, tx, _xsrf
-    _perform_duo_universal_prompt_flow(session, p, params, form_data)
-    sys.exit(1)
-    signed_duo_response, app = _perform_duo_mfa_flow(
-        session, login_url, response, duo_device, duo_factor
-    )
-    payload = form_to_dict(form_node)
-    logger.debug("Form fields: {}".format(payload))
-    payload["signedDuoResponse"] = ":".join([signed_duo_response, app])
-    keys = list(payload.keys())
-    valid_keys = set(["signedDuoResponse", "execution", "_eventId", "geolocation"])
-    for key in keys:
-        if key not in valid_keys:
-            del payload[key]
-    response = session.post(login_url, data=payload)
-    logger.info("DUO MFA flow complete.")
-    return response
+    return _perform_duo_universal_prompt_flow(session, p, params, form_data)
 
 
 def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_data):
     """
     Perform the Duo Universal Prompt flow.
+    Returns the final response.
     """
     sid = url_params["sid"]
     xsrf_token = form_data["_xsrf"]
     _start_duo_oidc_flow(session, parsed_url, form_data, url_params)
-    _configure_duo_universal_prompt_flow(session, parsed_url, sid)
+    duo_prompt_config = _configure_duo_universal_prompt_flow(session, parsed_url, sid)
+    device, device_key, factor = select_factor(duo_prompt_config)
+    inspect((device, device_key, factor))
     # TODO: hard-coding webauthn factor
-    factor = "WebAuthn Security Key"
+    # factor = DuoAuthnFactor.WEBAUTHN
+    if factor == DuoAuthnFactor.WEBAUTHN.value:
+        return _perform_duo_webauthn(session, parsed_url, sid, xsrf_token)
+    elif factor == DuoAuthnFactor.DUO_PUSH.value:
+        return _perform_duo_push(
+            session, device, device_key, parsed_url, sid, xsrf_token
+        )
+    else:
+        raise NotImplementedError(f"Factor '{factor}' not implemented.")
+
+
+def select_factor(duo_prompt_config):
+    """
+    Allow the user to interactively select the Duo 2nd factor.
+    """
+    supported_methods = [item.value for item in DuoAuthnFactor]
+    auth_methods = duo_prompt_config["response"]["auth_method_order"]
+    factors = [
+        entry["factor"]
+        for entry in auth_methods
+        if entry["factor"] in supported_methods
+    ]
+    selected_factor = Prompt.ask("Choose a 2nd factor", choices=factors, default=factors[0])
+    factor_map = {}
+    for entry in auth_methods:
+        factor = entry["factor"]
+        device_key = entry.get("deviceKey")
+        if device_key:
+            factor_map.setdefault(factor, []).append(device_key)
+        else:
+            factor_map[factor] = []
+    inspect(factor_map)
+    devices = factor_map[selected_factor]
+    logger.debug(f"Devices matching factor {selected_factor}: {devices}")
+    if len(devices) == 0:
+        device = "null"
+        device_key = ""
+    else:
+        phones = duo_prompt_config["response"]["phones"]
+        phones = [phone for phone in phones if phone["key"] in devices]
+        phone_choices = [f"phone-{phone['end_of_number']}" for phone in phones]
+        if len(phone_choices) > 1:
+            phone = Prompt.ask(
+                "Choose a device", choices=phone_choices, default=phones[1]
+            )
+            eon = phone[6:]
+            device = None
+            device_key = None
+            for phone in phones:
+                if phone["end_of_number"] == eon:
+                    device = phone["index"]
+                    device_key = phone["key"]
+                    break
+        else:
+            device = phones[0]["index"]
+            device_key = phones[0]["key"]
+    return device, device_key, selected_factor
+
+
+def _perform_duo_push(session, device, device_key, parsed_url, sid, xsrf_token):
+    """
+    Perform Duo Push.
+    """
+    factor = DuoAuthnFactor.DUO_PUSH
+    extra_form_data = {
+        "postAuthDestination": "OIDC_EXIT",
+    }
+    txid = _submit_duo_universal_prompt_factor(
+        session, parsed_url, sid, factor.value, device, extra_form_data=extra_form_data
+    )
+
+
+def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
+    """
+    Perform Duo WebAuthN.
+    """
+    factor = DuoAuthnFactor.WEBAUTHN
     device = "null"
     device_key = ""
-    txid = _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor, device)
+    txid = _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor.value, device)
     wcro = _get_webauth_credential_request_options(session, parsed_url, sid, txid)
     inspect(wcro)
     session_id = wcro["sessionId"]
@@ -75,7 +145,9 @@ def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_dat
         session, parsed_url, sid, session_id, assertion, client_data
     )
     _complete_webauthn(session, parsed_url, sid, txid)
-    _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, device_key)
+    return _complete_duo_oidc(
+        session, parsed_url, xsrf_token, sid, txid, factor.value, device_key
+    )
 
 
 def _start_duo_oidc_flow(session, parsed_url, form_data, url_params):
@@ -116,10 +188,12 @@ def _configure_duo_universal_prompt_flow(session, parsed_url, sid):
         "post_auth_action": "OIDC_EXIT",
         "sid": sid,
     }
-    logger.debug(f"Duo universal prompt request #2 url: {url}")
+    logger.debug(f"Duo universal prompt configuration url: {url}")
     resp = session.get(url, params=params)
-    logger.debug(f"Duo universal prompt response #2 url: {resp.url}")
-    inspect(resp)
+    logger.debug(f"Duo universal prompt configuration url: {resp.url}")
+    api_resp = resp.json()
+    inspect(api_resp)
+    return api_resp
 
 
 def _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, device_key):
@@ -149,6 +223,7 @@ def _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, devic
     inspect(form_data)
     resp = session.post(url, data=form_data)
     logger.debug(f"Duo OIDC completion response URL: {resp.url}")
+    return resp
 
 
 def _complete_webauthn(session, parsed_url, sid, txid):
@@ -282,7 +357,9 @@ def _get_webauth_credential_request_options(session, parsed_url, sid, txid):
     return api_resp["response"]["webauthn_credential_request_options"]
 
 
-def _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor, device):
+def _submit_duo_universal_prompt_factor(
+    session, parsed_url, sid, factor, device, extra_form_data=None
+):
     """
     Submit the choice of 2nd factor to the Duo service.
     Returns a transaction ID used in a subsequent flow.
@@ -303,6 +380,8 @@ def _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor, device
         "factor": factor,
         "sid": sid,
     }
+    if extra_form_data:
+        form_data.update(extra_form_data)
     inspect(form_data)
     resp = session.post(url, data=form_data)
     inspect(resp)
