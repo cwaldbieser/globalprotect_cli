@@ -8,7 +8,6 @@ from urllib.parse import urljoin, urlparse
 import logzero
 import requests
 from logzero import logger
-from rich import inspect
 
 from gpsaml.duo_mfa import authn_duo_mfa
 from gpsaml.html_parsers import (form_to_dict, get_form_from_html,
