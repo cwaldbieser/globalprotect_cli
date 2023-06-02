@@ -2,7 +2,7 @@
 certifi==2022.12.7 ; python_version >= '3.6'
 cffi==1.15.1
 charset-normalizer==3.0.1 ; python_full_version >= '3.6.0'
-cryptography==39.0.1 ; python_version >= '3.6'
+cryptography==41.0.0 ; python_version >= '3.6'
 fido2==1.1.0
 idna==3.4 ; python_version >= '3.5'
 logzero==1.7.0
