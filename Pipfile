@@ -10,6 +10,7 @@ requests = "*"
 logzero = "*"
 fido2 = "*"
 rich = "*"
+prompt-toolkit = "*"
 
 [requires]
 python_version = "3.10"

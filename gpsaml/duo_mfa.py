@@ -7,8 +7,9 @@ from enum import Enum
 from urllib.parse import parse_qs, quote_plus, urljoin, urlparse, urlunparse
 
 from logzero import logger
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import FuzzyWordCompleter
 from rich import inspect
-from rich.prompt import Prompt
 
 from .fido2lib import present_challenge_to_authenticator
 from .html_parsers import FrameParser, form_to_dict, get_form_from_response
@@ -53,8 +54,6 @@ def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_dat
     duo_prompt_config = _configure_duo_universal_prompt_flow(session, parsed_url, sid)
     device, device_key, factor = select_factor(duo_prompt_config)
     inspect((device, device_key, factor))
-    # TODO: hard-coding webauthn factor
-    # factor = DuoAuthnFactor.WEBAUTHN
     if factor == DuoAuthnFactor.WEBAUTHN.value:
         return _perform_duo_webauthn(session, parsed_url, sid, xsrf_token)
     elif factor == DuoAuthnFactor.DUO_PUSH.value:
@@ -76,7 +75,15 @@ def select_factor(duo_prompt_config):
         for entry in auth_methods
         if entry["factor"] in supported_methods
     ]
-    selected_factor = Prompt.ask("Choose a 2nd factor", choices=factors, default=factors[0])
+    session = PromptSession()
+    factor_completer = FuzzyWordCompleter(factors)
+    invalid = True
+    while invalid:
+        selected_factor = session.prompt(
+            "Choose a 2nd factor > ", completer=factor_completer
+        )
+        if selected_factor in factors:
+            invalid = False
     factor_map = {}
     for entry in auth_methods:
         factor = entry["factor"]
@@ -96,9 +103,13 @@ def select_factor(duo_prompt_config):
         phones = [phone for phone in phones if phone["key"] in devices]
         phone_choices = [f"phone-{phone['end_of_number']}" for phone in phones]
         if len(phone_choices) > 1:
-            phone = Prompt.ask(
-                "Choose a device", choices=phone_choices, default=phones[1]
-            )
+            session = PromptSession()
+            device_completer = FuzzyWordCompleter(phone_choices)
+            invalid = True
+            while invalid:
+                phone = session.prompt("Select a device > ", completer=device_completer)
+                if phone in phone_choices:
+                    invalid = False
             eon = phone[6:]
             device = None
             device_key = None
@@ -124,6 +135,10 @@ def _perform_duo_push(session, device, device_key, parsed_url, sid, xsrf_token):
     txid = _submit_duo_universal_prompt_factor(
         session, parsed_url, sid, factor.value, device, extra_form_data=extra_form_data
     )
+    _complete_duo_push(session, parsed_url, sid, txid)
+    return _complete_duo_oidc(
+        session, parsed_url, xsrf_token, sid, txid, factor.value, device_key, "true"
+    )
 
 
 def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
@@ -133,7 +148,9 @@ def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
     factor = DuoAuthnFactor.WEBAUTHN
     device = "null"
     device_key = ""
-    txid = _submit_duo_universal_prompt_factor(session, parsed_url, sid, factor.value, device)
+    txid = _submit_duo_universal_prompt_factor(
+        session, parsed_url, sid, factor.value, device
+    )
     wcro = _get_webauth_credential_request_options(session, parsed_url, sid, txid)
     inspect(wcro)
     session_id = wcro["sessionId"]
@@ -146,7 +163,7 @@ def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
     )
     _complete_webauthn(session, parsed_url, sid, txid)
     return _complete_duo_oidc(
-        session, parsed_url, xsrf_token, sid, txid, factor.value, device_key
+        session, parsed_url, xsrf_token, sid, txid, factor.value, device_key, "false"
     )
 
 
@@ -196,7 +213,9 @@ def _configure_duo_universal_prompt_flow(session, parsed_url, sid):
     return api_resp
 
 
-def _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, device_key):
+def _complete_duo_oidc(
+    session, parsed_url, xsrf_token, sid, txid, factor, device_key, dampen_choice
+):
     """
     Complete Duo OIDC and redirect back to web SSO with the tokens we were
     looking for as query parameters.
@@ -218,12 +237,45 @@ def _complete_duo_oidc(session, parsed_url, xsrf_token, sid, txid, factor, devic
         "factor": factor,
         "device_key": device_key,
         "_xsrf": xsrf_token,
-        "dampen_choice": "false",
+        "dampen_choice": dampen_choice,
     }
     inspect(form_data)
     resp = session.post(url, data=form_data)
     logger.debug(f"Duo OIDC completion response URL: {resp.url}")
     return resp
+
+
+def _complete_duo_push(session, parsed_url, sid, txid):
+    """
+    Complete the WebAuthN flow.
+    """
+    url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            "/frame/v4/status",
+            "",
+            "",
+            "",
+        )
+    )
+    logger.debug(f"Duo universal prompt Duo Push completion url: {url}")
+    form_data = {
+        "sid": sid,
+        "txid": txid,
+    }
+    inspect(form_data)
+    while True:
+        logger.info("Polling for Duo Push ...")
+        resp = session.post(url, data=form_data)
+        inspect(resp)
+        api_resp = resp.json()
+        inspect(api_resp)
+        status_code = api_resp["response"]["status_code"]
+        logger.info(f"Duo status code: {status_code}")
+        if status_code == "allow":
+            return resp
+        time.sleep(DUO_POLL_SECONDS)
 
 
 def _complete_webauthn(session, parsed_url, sid, txid):
