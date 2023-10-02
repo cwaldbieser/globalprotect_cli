@@ -13,5 +13,5 @@ pycparser==2.21
 pygments==2.15.1 ; python_version >= '3.7'
 requests==2.31.0
 rich==13.4.1
-urllib3==2.0.2 ; python_version >= '3.7'
+urllib3==2.0.6 ; python_version >= '3.7'
 wcwidth==0.2.6
