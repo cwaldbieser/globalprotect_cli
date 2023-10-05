@@ -1,17 +1,17 @@
 -i https://pypi.org/simple
 certifi==2023.7.22 ; python_version >= '3.6'
-cffi==1.15.1
-charset-normalizer==3.1.0 ; python_full_version >= '3.7.0'
-cryptography==41.0.3 ; python_version >= '3.7'
-fido2==1.1.1
+cffi==1.16.0 ; python_version >= '3.8'
+charset-normalizer==3.3.0 ; python_full_version >= '3.7.0'
+cryptography==41.0.4 ; python_version >= '3.7'
+fido2==1.1.2
 idna==3.4 ; python_version >= '3.5'
 logzero==1.7.0
-markdown-it-py==2.2.0 ; python_version >= '3.7'
+markdown-it-py==3.0.0 ; python_version >= '3.8'
 mdurl==0.1.2 ; python_version >= '3.7'
-prompt-toolkit==3.0.38
+prompt-toolkit==3.0.39
 pycparser==2.21
-pygments==2.15.1 ; python_version >= '3.7'
+pygments==2.16.1 ; python_version >= '3.7'
 requests==2.31.0
-rich==13.4.1
-urllib3==2.0.2 ; python_version >= '3.7'
-wcwidth==0.2.6
+rich==13.6.0
+urllib3==2.0.6 ; python_version >= '3.7'
+wcwidth==0.2.8
