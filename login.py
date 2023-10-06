@@ -19,7 +19,6 @@ def main(args):
     The main entrypoint.
     """
     logzero.loglevel(getattr(logging, args.log_level))
-    print(f"Log level set to {args.log_level}.")
     s = requests.Session()
     s.headers["User-Agent"] = "PAN GlobalProtect"
 
@@ -56,7 +55,7 @@ def make_saml_request(s, prelogin_endpoint):
         "clientVer": 4100,
         "clientos": "Linux",
     }
-    resp = s.post(urljoin(prelogin_endpoint, "/global-protect/prelogin.esp"), data=data)
+    resp = s.post(prelogin_endpoint, data=data)
     resp_text = resp.text
     html_str = parse_prelogin(resp_text)
     form = get_form_from_html(html_str, form_id="myform")

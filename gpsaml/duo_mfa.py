@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import struct
 import time
 from enum import Enum
@@ -73,15 +74,17 @@ def select_factor(duo_prompt_config):
         for entry in auth_methods
         if entry["factor"] in supported_methods
     ]
-    session = PromptSession()
-    factor_completer = FuzzyWordCompleter(factors)
-    invalid = True
-    while invalid:
-        selected_factor = session.prompt(
-            "Choose a 2nd factor > ", completer=factor_completer
-        )
-        if selected_factor in factors:
-            invalid = False
+    selected_factor = os.environ.get("DUO_FACTOR")
+    if selected_factor not in factors:
+        session = PromptSession()
+        factor_completer = FuzzyWordCompleter(factors)
+        invalid = True
+        while invalid:
+            selected_factor = session.prompt(
+                "Choose a 2nd factor > ", completer=factor_completer
+            )
+            if selected_factor in factors:
+                invalid = False
     factor_map = {}
     for entry in auth_methods:
         factor = entry["factor"]
@@ -101,13 +104,17 @@ def select_factor(duo_prompt_config):
         phones = [phone for phone in phones if phone["key"] in devices]
         phone_choices = [f"phone-{phone['end_of_number']}" for phone in phones]
         if len(phone_choices) > 1:
-            session = PromptSession()
-            device_completer = FuzzyWordCompleter(phone_choices)
-            invalid = True
-            while invalid:
-                phone = session.prompt("Select a device > ", completer=device_completer)
-                if phone in phone_choices:
-                    invalid = False
+            phone = os.environ.get("DUO_DEVICE")
+            if phone not in phone_choices:
+                session = PromptSession()
+                device_completer = FuzzyWordCompleter(phone_choices)
+                invalid = True
+                while invalid:
+                    phone = session.prompt(
+                        "Select a device > ", completer=device_completer
+                    )
+                    if phone in phone_choices:
+                        invalid = False
             eon = phone[6:]
             device = None
             device_key = None
