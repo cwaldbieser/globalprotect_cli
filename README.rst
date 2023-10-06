@@ -48,13 +48,15 @@ All methods assume you are using the Duo Universal Prompt.
    -  DUO_FACTOR
    -  DUO_DEVICE
 
+   Supported factors are 'Duo Push' and 'WebAuthn Security Key'.
+
 ***************
  Example Usage
 ***************
 
 .. code:: shell
 
-   $ eval $(pipenv run ./login.py https://globalprotect.example.net/ waldbiec -l ERROR)
+   $ eval $(pipenv run ./login.py https://globalprotect.example.net/ssl-vpn/prelogin.esp waldbiec -l ERROR)
    $ echo "$COOKIE" | openconnect --protocol=gp -u "$VPN_USER" --passwd-on-stdin "https://$VPN_HOST/gateway:prelogin-cookie"
 
 ***************
