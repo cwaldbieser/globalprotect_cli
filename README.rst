@@ -37,6 +37,17 @@ All methods assume you are using the Duo Universal Prompt.
 -  WebAuthn
 -  Duo Push
 
+.. note::
+
+   The program potentially may prompt for both a Duo Factor and Device
+   if there are multiple choices. This won't work out if you are trying
+   to eval the results of the script. After determining what
+   factor/device you'd like to use interactively, you should set the
+   following environment variables as needed:
+
+   -  DUO_FACTOR
+   -  DUO_DEVICE
+
 ***************
  Example Usage
 ***************
@@ -81,6 +92,7 @@ OpenConnect client must be modern enough to support the "gp" protocol.
        exit 1
    fi
 
+   export DUO_FACTOR='WebAuthn Security Key'
    PRELOGIN="$GP_ENDPOINT/ssl-vpn/prelogin.esp"
    cd "$GP_CLI_SOFTWARE_DIR"
    eval $($PIPENV run ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa -l ERROR)
