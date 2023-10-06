@@ -10,8 +10,7 @@ import requests
 from logzero import logger
 
 from gpsaml.duo_mfa import authn_duo_mfa
-from gpsaml.html_parsers import (form_to_dict, get_form_from_html,
-                                 get_form_from_response)
+from gpsaml.html_parsers import form_to_dict, get_form_from_html, get_form_from_response
 from gpsaml.xml_parser import parse_prelogin
 
 
@@ -22,6 +21,8 @@ def main(args):
     logzero.loglevel(getattr(logging, args.log_level))
     print(f"Log level set to {args.log_level}.")
     s = requests.Session()
+    s.headers["User-Agent"] = "PAN GlobalProtect"
+
     if not args.test_auth_endpoint:
         prelogin_endpoint = args.prelogin
         saml_resp = make_saml_request(s, prelogin_endpoint)
@@ -33,8 +34,7 @@ def main(args):
     if args.test_auth_endpoint:
         return
     gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
-    logger.debug("Response:\n{}".format(gp_resp.text))
-    logger.debug("Headers: {}".format(gp_resp.headers))
+    log_saml_headers(gp_resp.headers)
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]
     user = gp_resp.headers["saml-username"]
@@ -48,11 +48,21 @@ def make_saml_request(s, prelogin_endpoint):
     """
     Make the SAML request on behalf of the GlobalProtect service provider.
     """
-    resp = s.get(prelogin_endpoint)
-    html_str = parse_prelogin(resp.text)
+    # "Magic" data to submit to prelogin endpoint.
+    data = {
+        "tmp": "tmp",
+        "kerberos-support": "yes",
+        "ipv6-support": "yes",
+        "clientVer": 4100,
+        "clientos": "Linux",
+    }
+    resp = s.post(urljoin(prelogin_endpoint, "/global-protect/prelogin.esp"), data=data)
+    resp_text = resp.text
+    html_str = parse_prelogin(resp_text)
     form = get_form_from_html(html_str, form_id="myform")
     payload = form_to_dict(form)
     form_action = form.attrib["action"]
+    logger.debug(f"form_action: {form_action}")
     resp = s.post(form_action, data=payload)
     return resp
 
@@ -72,14 +82,28 @@ def send_saml_response_to_globalprotect(s, resp):
     """
     form = get_form_from_response(resp, form_index=0)
     form_url = resp.url
-    logger.debug("Form URL: {}".format(form_url))
+    logger.debug(f"IdP authN form URL: {form_url}")
     form_action = urljoin(
         form_url,
         form.attrib.get("action", ""),
     )
     payload = form_to_dict(form)
-    logger.debug("POSTing SAMLResponse to `{}` ...".format(form_action))
-    resp = s.post(form_action, data=payload)
+    payload["MIME Type"] = "application/x-www-form-urlencoded"
+    logger.debug(f"POSTing SAMLResponse to '{form_action}' ...")
+    user_agent = (
+        "Mozilla/5.0"
+        " (X11; Ubuntu; Linux x86_64; rv:109.0)"
+        " Gecko/20100101 Firefox/118.0"
+    )
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": user_agent,
+    }
+    resp = s.post(form_action, data=payload, headers=headers, allow_redirects=False)
+    logger.debug(f"GP response url: {resp.url}")
+    logger.debug(f"GP response headers: {resp.headers}")
+    logger.debug(f"GP response status_code: {resp.status_code}")
     return resp
 
 
@@ -91,7 +115,7 @@ def authn_user_passwd(s, resp, username):
     """
     form = get_form_from_response(resp, form_index=1)
     form_url = resp.url
-    logger.debug("Form URL: {}".format(form_url))
+    logger.debug(f"Form URL: {form_url}")
     form_action = urljoin(
         form_url,
         form.attrib.get("action", ""),
@@ -101,12 +125,22 @@ def authn_user_passwd(s, resp, username):
         key = tag.attrib["name"]
         value = tag.attrib.get("value", "")
         payload[key] = value
-    logger.debug("Unfilled form fields: {}".format(payload))
+    logger.debug(f"Unfilled form fields: {payload}")
     payload["username"] = username
     passwd = getpass.getpass()
     payload["password"] = passwd
     resp = s.post(form_action, data=payload)
     return resp
+
+
+def log_saml_headers(headers):
+    saml_headers = {}
+    for k, v in headers.items():
+        if k.lower().startswith("saml-"):
+            saml_headers[k] = v
+        elif k.lower() == "prelogin-cookie":
+            saml_headers[k] = v
+    logger.debug(f"SAML headers: {saml_headers}")
 
 
 if __name__ == "__main__":
