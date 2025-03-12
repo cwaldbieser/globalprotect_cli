@@ -22,14 +22,21 @@ class DuoAuthnFactor(Enum):
     DUO_PUSH = "Duo Push"
 
 
-def authn_duo_mfa(session, response):
+def authn_duo_mfa(session, duo_login_url):
     """
     Process Duo MFA flow.
     Returns the final response of the flow.
     """
+    p = urlparse(duo_login_url)
+    duo_login_url = urlunparse((p.scheme, p.netloc, p.path, p.params, "", ""))
+    qs = parse_qs(p.query)
+    params = dict((k, v[0]) for k, v in qs.items())
+    logger.debug(f"Requesting from Duo auth url: {duo_login_url}")
+    logger.debug(f"Request params: {params}")
+    response = session.get(duo_login_url, params=params)
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
-    logger.debug("DUO login_url: {}".format(login_url))
+    logger.debug(f"DUO login_url: {login_url}")
     p = urlparse(login_url)
     # params include `sid` and `tx` (a JWT).
     params = parse_qs(p.query)
@@ -39,6 +46,8 @@ def authn_duo_mfa(session, response):
     form_data = form_to_dict(form_node)
     inspect(form_data)
     # At this point, have the sid, tx, _xsrf
+    logger.debug(f"params: {params}")
+    logger.debug(f"form_data: {form_data}")
     return _perform_duo_universal_prompt_flow(session, p, params, form_data)
 
 
@@ -187,8 +196,9 @@ def _start_duo_oidc_flow(session, parsed_url, form_data, url_params):
         )
     )
     logger.debug(f"Duo universal prompt start OIDC url: {url}")
-    resp = session.post(url, params=url_params, data=form_data)
-    inspect(resp)
+    # resp = session.post(url, params=url_params, data=form_data)
+    # inspect(resp)
+    session.post(url, params=url_params, data=form_data)
 
 
 def _configure_duo_universal_prompt_flow(session, parsed_url, sid):

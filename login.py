@@ -4,6 +4,7 @@ import argparse
 import getpass
 import logging
 from urllib.parse import urljoin, urlparse
+import json
 
 import logzero
 import requests
@@ -19,6 +20,8 @@ def main(args):
     The main entrypoint.
     """
     logzero.loglevel(getattr(logging, args.log_level))
+    if args.log_file is not None:
+        logzero.logfile(args.log_file)
     s = requests.Session()
     s.headers["User-Agent"] = "PAN GlobalProtect"
 
@@ -29,7 +32,9 @@ def main(args):
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
     if args.duo_mfa:
-        authn_resp = authn_duo_mfa(s, authn_resp)
+        duo_url = parse_duo_url_from_cas(authn_resp)
+        logger.debug(f"DUO url: {duo_url}")
+        authn_resp = authn_duo_mfa(s, duo_url)
     if args.test_auth_endpoint:
         return
     gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
@@ -41,6 +46,24 @@ def main(args):
     exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
     for key, value in exports.items():
         print("export {}={}".format(key, value))
+
+
+def parse_duo_url_from_cas(resp):
+    """
+    Parse the Duo security URL from the CAS POST response.
+    """
+    html = resp.text
+    prefix = "const browserStorage = "
+    prefix_size = len(prefix)
+    for line in html.split("\n"):
+        line = line.strip()
+        if line.startswith(prefix):
+            line = line[prefix_size:]
+            line = line.rstrip(";")
+            o = json.loads(line)
+            url = o["destinationUrl"]
+            return url
+    return None
 
 
 def make_saml_request(s, prelogin_endpoint):
@@ -112,7 +135,7 @@ def authn_user_passwd(s, resp, username):
     Additionally perform any other authentication required (e.g. MFA).
     Return the SAML response.
     """
-    form = get_form_from_response(resp, form_index=1)
+    form = get_form_from_response(resp, form_id="fm1")
     form_url = resp.url
     logger.debug(f"Form URL: {form_url}")
     form_action = urljoin(
@@ -155,6 +178,9 @@ if __name__ == "__main__":
         default="INFO",
         choices=["ERROR", "WARN", "INFO", "DEBUG"],
         help="The log level to use.",
+    )
+    parser.add_argument(
+        "--log-file", action="store", help="Path of the log file to send log events to."
     )
     parser.add_argument(
         "--duo-mfa",
