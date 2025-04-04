@@ -10,7 +10,6 @@ from logzero import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import FuzzyWordCompleter
 
-from .debugging import inspect
 from .fido2lib import present_challenge_to_authenticator
 from .html_parsers import form_to_dict, get_form_from_response
 
@@ -40,11 +39,9 @@ def authn_duo_mfa(session, duo_login_url):
     p = urlparse(login_url)
     # params include `sid` and `tx` (a JWT).
     params = parse_qs(p.query)
-    inspect(params)
     # Form includes `_xsrf` token.
     form_node = get_form_from_response(response, form_id="plugin_form")
     form_data = form_to_dict(form_node)
-    inspect(form_data)
     # At this point, have the sid, tx, _xsrf
     logger.debug(f"params: {params}")
     logger.debug(f"form_data: {form_data}")
@@ -61,7 +58,6 @@ def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_dat
     _start_duo_oidc_flow(session, parsed_url, form_data, url_params)
     duo_prompt_config = _configure_duo_universal_prompt_flow(session, parsed_url, sid)
     device, device_key, factor = select_factor(duo_prompt_config)
-    inspect((device, device_key, factor))
     if factor == DuoAuthnFactor.WEBAUTHN.value:
         return _perform_duo_webauthn(session, parsed_url, sid, xsrf_token)
     elif factor == DuoAuthnFactor.DUO_PUSH.value:
@@ -102,7 +98,6 @@ def select_factor(duo_prompt_config):
             factor_map.setdefault(factor, []).append(device_key)
         else:
             factor_map[factor] = []
-    inspect(factor_map)
     devices = factor_map[selected_factor]
     logger.debug(f"Devices matching factor {selected_factor}: {devices}")
     if len(devices) == 0:
@@ -166,12 +161,9 @@ def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
         session, parsed_url, sid, factor.value, device
     )
     wcro = _get_webauth_credential_request_options(session, parsed_url, sid, txid)
-    inspect(wcro)
     session_id = wcro["sessionId"]
     origin = _create_webauthn_origin(parsed_url)
     assertion, client_data = present_challenge_to_authenticator(wcro, origin)
-    inspect(assertion)
-    inspect(client_data)
     txid = _submit_duo_webauthn_response_data(
         session, parsed_url, sid, session_id, assertion, client_data
     )
@@ -224,7 +216,6 @@ def _configure_duo_universal_prompt_flow(session, parsed_url, sid):
     resp = session.get(url, params=params)
     logger.debug(f"Duo universal prompt configuration url: {resp.url}")
     api_resp = resp.json()
-    inspect(api_resp)
     return api_resp
 
 
@@ -254,7 +245,6 @@ def _complete_duo_oidc(
         "_xsrf": xsrf_token,
         "dampen_choice": dampen_choice,
     }
-    inspect(form_data)
     resp = session.post(url, data=form_data)
     logger.debug(f"Duo OIDC completion response URL: {resp.url}")
     return resp
@@ -279,13 +269,10 @@ def _complete_duo_push(session, parsed_url, sid, txid):
         "sid": sid,
         "txid": txid,
     }
-    inspect(form_data)
     while True:
         logger.info("Polling for Duo Push ...")
         resp = session.post(url, data=form_data)
-        inspect(resp)
         api_resp = resp.json()
-        inspect(api_resp)
         status_code = api_resp["response"]["status_code"]
         logger.info(f"Duo status code: {status_code}")
         if status_code == "allow":
@@ -312,11 +299,7 @@ def _complete_webauthn(session, parsed_url, sid, txid):
         "sid": sid,
         "txid": txid,
     }
-    inspect(form_data)
-    resp = session.post(url, data=form_data)
-    inspect(resp)
-    api_resp = resp.json()
-    inspect(api_resp)
+    session.post(url, data=form_data)
 
 
 def _submit_duo_webauthn_response_data(
@@ -336,7 +319,6 @@ def _submit_duo_webauthn_response_data(
         "postAuthDestination": "OIDC_EXIT",
         "sid": sid,
     }
-    inspect(form_data)
     url = urlunparse(
         (
             parsed_url.scheme,
@@ -349,9 +331,7 @@ def _submit_duo_webauthn_response_data(
     )
     logger.debug(f"Duo universal prompt webauthn response submission url: {url}")
     resp = session.post(url, data=form_data)
-    inspect(resp)
     api_resp = resp.json()
-    inspect(api_resp)
     return api_resp["response"]["txid"]
 
 
@@ -416,11 +396,8 @@ def _get_webauth_credential_request_options(session, parsed_url, sid, txid):
         "txid": txid,
         "sid": sid,
     }
-    inspect(form_data)
     resp = session.post(url, data=form_data)
-    inspect(resp)
     api_resp = resp.json()
-    inspect(api_resp)
     return api_resp["response"]["webauthn_credential_request_options"]
 
 
@@ -449,9 +426,6 @@ def _submit_duo_universal_prompt_factor(
     }
     if extra_form_data:
         form_data.update(extra_form_data)
-    inspect(form_data)
     resp = session.post(url, data=form_data)
-    inspect(resp)
     api_resp = resp.json()
-    inspect(api_resp)
     return api_resp["response"]["txid"]

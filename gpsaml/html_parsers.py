@@ -41,7 +41,6 @@ class FormParser(HTMLParser):
 
     def extract_form(self, index):
         form = dict(self.forms[index])  # Will raise exception if out of bound
-        logger.debug(f"FORM: {form}")
         fields = form.pop("_fields", [])
         return "<form %s>%s</form>" % (
             self._dict2str(form),

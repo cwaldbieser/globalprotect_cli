@@ -31,13 +31,29 @@ def main(args):
     else:
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
+    # with open("/tmp/post-passwd-authn.html", "w") as f:
+    #     print(authn_resp.text, file=f)
     if args.duo_mfa:
-        duo_url = parse_duo_url_from_cas(authn_resp)
+        duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
+        # with open("/tmp/browser-storage.json", "w") as f:
+        #     json.dump(browser_storage, f, indent=4)
         logger.debug(f"DUO url: {duo_url}")
         authn_resp = authn_duo_mfa(s, duo_url)
     if args.test_auth_endpoint:
         return
-    gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
+    logger.debug(f"HTTP status: {authn_resp.status_code}")
+    # with open("/tmp/temp.html", "w") as f:
+    #     print(authn_resp.text, file=f)
+    fm1 = get_form_from_response(authn_resp, form_index=None, form_id="fm1")
+    fm1 = form_to_dict(fm1)
+    payload = {}
+    payload[browser_storage["context"]] = browser_storage["payload"]
+    fm1["browserStorage"] = json.dumps(payload)
+    logger.debug(f"URL: {authn_resp.url}")
+    new_resp = s.post(authn_resp.url, data=fm1)
+    logger.debug(f"URL: {new_resp.url}")
+    logger.debug(f"HTTPS status: {new_resp.status_code}")
+    gp_resp = send_saml_response_to_globalprotect(s, new_resp)
     log_saml_headers(gp_resp.headers)
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]
@@ -45,7 +61,7 @@ def main(args):
     cookie = gp_resp.headers["prelogin-cookie"]
     exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
     for key, value in exports.items():
-        print("export {}={}".format(key, value))
+        print(f"export {key}={value}")
 
 
 def parse_duo_url_from_cas(resp):
@@ -62,7 +78,7 @@ def parse_duo_url_from_cas(resp):
             line = line.rstrip(";")
             o = json.loads(line)
             url = o["destinationUrl"]
-            return url
+            return url, o
     return None
 
 
@@ -147,7 +163,6 @@ def authn_user_passwd(s, resp, username):
         key = tag.attrib["name"]
         value = tag.attrib.get("value", "")
         payload[key] = value
-    logger.debug(f"Unfilled form fields: {payload}")
     payload["username"] = username
     passwd = getpass.getpass()
     payload["password"] = passwd
