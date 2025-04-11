@@ -2,9 +2,9 @@
 
 import argparse
 import getpass
+import json
 import logging
 from urllib.parse import urljoin, urlparse
-import json
 
 import logzero
 import requests
@@ -31,13 +31,20 @@ def main(args):
     else:
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
-    # with open("/tmp/post-passwd-authn.html", "w") as f:
-    #     print(authn_resp.text, file=f)
+    msg = f"authn_resp.status_code: {authn_resp.status_code}"
+    logger.debug(msg)
+    msg = f"authn_resp.url: {authn_resp.url}"
+    logger.debug(msg)
+    with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
+        print(authn_resp.text, file=f)
     if args.duo_mfa:
-        duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
-        # with open("/tmp/browser-storage.json", "w") as f:
-        #     json.dump(browser_storage, f, indent=4)
-        logger.debug(f"DUO url: {duo_url}")
+        server_side_duo = True
+        if not server_side_duo:
+            duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
+        else:
+            duo_url = authn_resp.url
+        msg = f"DUO url: {duo_url}"
+        logger.debug(msg)
         authn_resp = authn_duo_mfa(s, duo_url)
     if args.test_auth_endpoint:
         return
@@ -208,5 +215,5 @@ if __name__ == "__main__":
         action="store",
         help="Test authentication endpoint, used for development.",
     )
-    args = parser.parse_args()
-    main(args)
+    cli_args = parser.parse_args()
+    main(cli_args)
