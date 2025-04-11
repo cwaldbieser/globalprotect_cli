@@ -35,8 +35,8 @@ def main(args):
     logger.debug(msg)
     msg = f"authn_resp.url: {authn_resp.url}"
     logger.debug(msg)
-    with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
-        print(authn_resp.text, file=f)
+    # with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
+    #     print(authn_resp.text, file=f)
     if args.duo_mfa:
         if args.client_side_duo:
             duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
@@ -48,8 +48,8 @@ def main(args):
     if args.test_auth_endpoint:
         return
     logger.debug(f"HTTP status: {authn_resp.status_code}")
-    with open("/tmp/temp.html", "w") as f:
-        print(authn_resp.text, file=f)
+    # with open("/tmp/temp.html", "w") as f:
+    #     print(authn_resp.text, file=f)
     if args.duo_mfa and args.client_side_duo:
         fm1 = get_form_from_response(authn_resp, form_index=None, form_id="fm1")
         fm1 = form_to_dict(fm1)
