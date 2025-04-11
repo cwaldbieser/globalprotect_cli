@@ -48,18 +48,20 @@ def main(args):
     if args.test_auth_endpoint:
         return
     logger.debug(f"HTTP status: {authn_resp.status_code}")
-    # with open("/tmp/temp.html", "w") as f:
-    #     print(authn_resp.text, file=f)
-    fm1 = get_form_from_response(authn_resp, form_index=None, form_id="fm1")
-    fm1 = form_to_dict(fm1)
-    payload = {}
-    payload[browser_storage["context"]] = browser_storage["payload"]
-    fm1["browserStorage"] = json.dumps(payload)
-    logger.debug(f"URL: {authn_resp.url}")
-    new_resp = s.post(authn_resp.url, data=fm1)
-    logger.debug(f"URL: {new_resp.url}")
-    logger.debug(f"HTTPS status: {new_resp.status_code}")
-    gp_resp = send_saml_response_to_globalprotect(s, new_resp)
+    with open("/tmp/temp.html", "w") as f:
+        print(authn_resp.text, file=f)
+    if args.duo_mfa and args.client_side_duo:
+        fm1 = get_form_from_response(authn_resp, form_index=None, form_id="fm1")
+        fm1 = form_to_dict(fm1)
+        payload = {}
+        payload[browser_storage["context"]] = browser_storage["payload"]
+        fm1["browserStorage"] = json.dumps(payload)
+        logger.debug(f"URL: {authn_resp.url}")
+        new_resp = s.post(authn_resp.url, data=fm1)
+        logger.debug(f"URL: {new_resp.url}")
+        logger.debug(f"HTTPS status: {new_resp.status_code}")
+        authn_resp = new_resp
+    gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
     log_saml_headers(gp_resp.headers)
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]

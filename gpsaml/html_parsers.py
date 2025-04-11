@@ -9,6 +9,10 @@ class FormParserError(Exception):
     pass
 
 
+class FormNotFoundError(Exception):
+    pass
+
+
 class FormParser(HTMLParser):
     def __init__(self):
         """Parse an html saml login form."""
@@ -59,7 +63,7 @@ class FormParser(HTMLParser):
                 found = True
                 break
         if not found:
-            raise Exception("Could not find form with ID `{}`.".format(form_id))
+            raise FormNotFoundError(f"Could not find form with ID '{form_id}'.")
         logger.debug(f"Found for with ID '{form_id}' at index {n}.")
         return self.extract_form(n)
 
