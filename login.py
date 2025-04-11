@@ -38,14 +38,13 @@ def main(args):
     with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
         print(authn_resp.text, file=f)
     if args.duo_mfa:
-        server_side_duo = True
-        if not server_side_duo:
+        if args.client_side_duo:
             duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
+            msg = f"DUO url: {duo_url}"
+            logger.debug(msg)
+            authn_resp = authn_duo_mfa(s, duo_login_url=duo_url)
         else:
-            duo_url = authn_resp.url
-        msg = f"DUO url: {duo_url}"
-        logger.debug(msg)
-        authn_resp = authn_duo_mfa(s, duo_url)
+            authn_resp = authn_duo_mfa(s, response=authn_resp)
     if args.test_auth_endpoint:
         return
     logger.debug(f"HTTP status: {authn_resp.status_code}")
@@ -208,6 +207,11 @@ if __name__ == "__main__":
         "--duo-mfa",
         action="store_true",
         help="Use Duo MFA",
+    )
+    parser.add_argument(
+        "--client-side-duo",
+        action="store_true",
+        help="Indicate Duo MFA uses client-side CAS integration.",
     )
     parser.add_argument(
         "-t",

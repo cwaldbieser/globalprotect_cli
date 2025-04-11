@@ -21,18 +21,21 @@ class DuoAuthnFactor(Enum):
     DUO_PUSH = "Duo Push"
 
 
-def authn_duo_mfa(session, duo_login_url):
+def authn_duo_mfa(session, duo_login_url=None, response=None):
     """
     Process Duo MFA flow.
     Returns the final response of the flow.
     """
-    p = urlparse(duo_login_url)
-    duo_login_url = urlunparse((p.scheme, p.netloc, p.path, p.params, "", ""))
-    qs = parse_qs(p.query)
-    params = dict((k, v[0]) for k, v in qs.items())
-    logger.debug(f"Requesting from Duo auth url: {duo_login_url}")
-    logger.debug(f"Request params: {params}")
-    response = session.get(duo_login_url, params=params)
+    if duo_login_url is not None:
+        p = urlparse(duo_login_url)
+        duo_login_url = urlunparse((p.scheme, p.netloc, p.path, p.params, "", ""))
+        qs = parse_qs(p.query)
+        params = dict((k, v[0]) for k, v in qs.items())
+        logger.debug(f"Requesting from Duo auth url: {duo_login_url}")
+        logger.debug(f"Request params: {params}")
+        response = session.get(duo_login_url, params=params)
+    if response is None:
+        raise Exception("Duo authN response is None.")
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
     logger.debug(f"DUO login_url: {login_url}")
