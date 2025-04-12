@@ -37,6 +37,7 @@ def main(args):
     logger.debug(msg)
     # with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
     #     print(authn_resp.text, file=f)
+    browser_storage = None
     if args.duo_mfa:
         if args.client_side_duo:
             duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
@@ -67,7 +68,7 @@ def main(args):
     host = p.netloc.split(":")[0]
     user = gp_resp.headers["saml-username"]
     cookie = gp_resp.headers["prelogin-cookie"]
-    exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
+    exports = {"VPN_HOST": host, "VPN_USER": user, "COOKIE": cookie}
     for key, value in exports.items():
         print(f"export {key}={value}")
 
@@ -179,6 +180,9 @@ def authn_user_passwd(s, resp, username):
 
 
 def log_saml_headers(headers):
+    """
+    Log headers realted to a GlobalProtect SAML assertion.
+    """
     saml_headers = {}
     for k, v in headers.items():
         if k.lower().startswith("saml-"):

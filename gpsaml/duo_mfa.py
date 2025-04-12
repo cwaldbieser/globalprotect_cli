@@ -17,8 +17,18 @@ DUO_POLL_SECONDS = 10
 
 
 class DuoAuthnFactor(Enum):
+    """
+    Duo multi-factor methods enumerations.
+    """
+
     WEBAUTHN = "WebAuthn Security Key"
     DUO_PUSH = "Duo Push"
+
+
+class DuoAuthNResponseError(Exception):
+    """
+    Duo authentication failure.
+    """
 
 
 def authn_duo_mfa(session, duo_login_url=None, response=None):
@@ -35,7 +45,7 @@ def authn_duo_mfa(session, duo_login_url=None, response=None):
         logger.debug(f"Request params: {params}")
         response = session.get(duo_login_url, params=params)
     if response is None:
-        raise Exception("Duo authN response is None.")
+        raise DuoAuthNResponseError("Duo authN response is None.")
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
     logger.debug(f"DUO login_url: {login_url}")
@@ -63,12 +73,11 @@ def _perform_duo_universal_prompt_flow(session, parsed_url, url_params, form_dat
     device, device_key, factor = select_factor(duo_prompt_config)
     if factor == DuoAuthnFactor.WEBAUTHN.value:
         return _perform_duo_webauthn(session, parsed_url, sid, xsrf_token)
-    elif factor == DuoAuthnFactor.DUO_PUSH.value:
+    if factor == DuoAuthnFactor.DUO_PUSH.value:
         return _perform_duo_push(
             session, device, device_key, parsed_url, sid, xsrf_token
         )
-    else:
-        raise NotImplementedError(f"Factor '{factor}' not implemented.")
+    raise NotImplementedError(f"Factor '{factor}' not implemented.")
 
 
 def select_factor(duo_prompt_config):
@@ -347,18 +356,18 @@ def _create_webauthn_response_from_assertion(session_id, assertion, client_data)
         base64.urlsafe_b64encode(assertion.credential["id"]).decode("utf-8").rstrip("=")
     )
     response_data = json.dumps(
-        dict(
-            sessionId=session_id,
-            id=b64_cred_id,
-            rawId=b64_cred_id,
-            type=assertion.credential["type"],
-            authenticatorData=base64.urlsafe_b64encode(
+        {
+            "sessionId": session_id,
+            "id": b64_cred_id,
+            "rawId": b64_cred_id,
+            "type": assertion.credential["type"],
+            "authenticatorData": base64.urlsafe_b64encode(
                 auth_data.rp_id_hash
                 + struct.pack(">BI", auth_data.flags, auth_data.counter)
             ).decode("utf-8"),
-            clientDataJSON=client_data.b64,
-            signature=assertion.signature.hex(),
-        )
+            "clientDataJSON": client_data.b64,
+            "signature": assertion.signature.hex(),
+        }
     )
     return response_data
 
