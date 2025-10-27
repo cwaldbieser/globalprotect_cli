@@ -37,7 +37,7 @@ def present_challenge_to_authenticator(
     # pin = None
     uv = "discouraged"
 
-    logger.debug("FIDO2 webauthn_cred_req_opts: {}".format(webauthn_cred_req_opts))
+    logger.debug(f"FIDO2 webauthn_cred_req_opts: {webauthn_cred_req_opts}")
     rp_id = webauthn_cred_req_opts["rpId"]
 
     if WindowsClient.is_available():
@@ -56,7 +56,8 @@ def present_challenge_to_authenticator(
                 dev = next(CtapPcscDevice.list_devices(), None)
                 logger.debug("Use NFC channel.")
             except Exception as e:
-                logger.debug("NFC channel search error:", e)
+                logger.debug("NFC channel search error.")
+                logger.exception(e)
 
         if not dev:
             logger.error("No FIDO device found")
@@ -86,7 +87,8 @@ def present_challenge_to_authenticator(
             stream.write("\nTouch your authenticator device now...\n")
             stream.flush()
         except Exception as ex:
-            logger.warn("FIDO2 Could not write to current TTY. {}".format(ex))
+            logger.warning("FIDO2 Could not write to current TTY.")
+            logger.exception(ex)
 
     allowed_creds = []
     allow_creds_reps = []
@@ -99,11 +101,11 @@ def present_challenge_to_authenticator(
             id=decode_base64(cred_id),
             transports=transports,
         )
-        rep = dict(
-            type=cred_type,
-            id=cred_id,
-            transports=transports,
-        )
+        rep = {
+            "type": cred_type,
+            "id": cred_id,
+            "transports": transports,
+        }
         allowed_creds.append(pubkey_cred_descriptor)
         allow_creds_reps.append(rep)
 
@@ -116,22 +118,12 @@ def present_challenge_to_authenticator(
         allow_credentials=allowed_creds,
         user_verification=uv,
     )
-    request_options = dict(publicKey=pubkey_req_opts)
-    logger.debug(
-        "[DEBUG] my request_options",
-        dict(
-            challenge=challenge,
-            timeout=timeout,
-            rp_id=rp_id,
-            allow_credentials=allow_creds_reps,
-            user_verification=uv,
-        ),
-    )
+    request_options = {"publicKey": pubkey_req_opts}
     # assertions, client_data = client.get_assertion(request_options["publicKey"], pin=pin)
     selection = client.get_assertion(request_options["publicKey"])
     assertions = selection.get_assertions()
     assertion = assertions[0]  # Only one cred in allowCredentials, only one response.
     authenticator_assertion_response = selection.get_response(0)
-    logger.debug("ASSERTION DATA:", assertion)
+    logger.debug(f"ASSERTION DATA: {assertion}")
     logger.info("FIDO2 Authenticator successfully validated challenge.")
     return assertion, authenticator_assertion_response.client_data
