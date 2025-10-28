@@ -6,7 +6,7 @@ import os
 import sys
 
 from fido2 import webauthn
-from fido2.client import Fido2Client, WindowsClient
+from fido2.client import Fido2Client, DefaultClientDataCollector
 from fido2.hid import CtapHidDevice
 from logzero import logger
 
@@ -40,41 +40,40 @@ def present_challenge_to_authenticator(
     logger.debug("FIDO2 webauthn_cred_req_opts: {}".format(webauthn_cred_req_opts))
     rp_id = webauthn_cred_req_opts["rpId"]
 
-    if WindowsClient.is_available():
-        # Use the Windows WebAuthn API if available
-        client = WindowsClient(origin)
+    # Locate a device
+    dev = next(CtapHidDevice.list_devices(), None)
+    if dev is not None:
+        logger.debug("Use USB HID channel.")
+        use_prompt = True
     else:
-        # Locate a device
-        dev = next(CtapHidDevice.list_devices(), None)
-        if dev is not None:
-            logger.debug("Use USB HID channel.")
-            use_prompt = True
-        else:
-            try:
-                from fido2.pcsc import CtapPcscDevice
+        try:
+            from fido2.pcsc import CtapPcscDevice
 
-                dev = next(CtapPcscDevice.list_devices(), None)
-                logger.debug("Use NFC channel.")
-            except Exception as e:
-                logger.debug("NFC channel search error:", e)
+            dev = next(CtapPcscDevice.list_devices(), None)
+            logger.debug("Use NFC channel.")
+        except Exception as e:
+            logger.debug("NFC channel search error:", e)
 
-        if not dev:
-            logger.error("No FIDO device found")
-            sys.exit(1)
+    if not dev:
+        logger.error("No FIDO device found")
+        sys.exit(1)
 
-        # Set up a FIDO 2 client using the origin https://example.com
-        # client = Fido2Client(dev, "https://example.com")
-        client = Fido2Client(dev, origin)
+    # Set up a FIDO 2 client using the origin https://example.com
+    # client = Fido2Client(dev, "https://example.com")
+    client = Fido2Client(
+        dev,
+        client_data_collector=DefaultClientDataCollector(origin=origin),
+    )
 
-        # Prefer UV if supported
-        if client.info.options.get("uv"):
-            uv = "preferred"
-            logger.debug("Authenticator supports User Verification")
-        # elif client.info.options.get("clientPin"):
-        #     # Prompt for PIN if needed
-        #     pin = getpass("Please enter PIN: ")
-        else:
-            logger.debug("PIN not set, won't use")
+    # Prefer UV if supported
+    if client.info.options.get("uv"):
+        uv = "preferred"
+        logger.debug("Authenticator supports User Verification")
+    # elif client.info.options.get("clientPin"):
+    #     # Prompt for PIN if needed
+    #     pin = getpass("Please enter PIN: ")
+    else:
+        logger.debug("PIN not set, won't use")
 
     # Authenticate the credential
     if use_prompt:
@@ -110,28 +109,21 @@ def present_challenge_to_authenticator(
     challenge = webauthn_cred_req_opts["challenge"]
     timeout = webauthn_cred_req_opts["timeout"]
     pubkey_req_opts = webauthn.PublicKeyCredentialRequestOptions(
-        decode_base64(challenge),
+        challenge=decode_base64(challenge),
         timeout=timeout,
         rp_id=rp_id,
         allow_credentials=allowed_creds,
         user_verification=uv,
     )
-    request_options = dict(publicKey=pubkey_req_opts)
-    logger.debug(
-        "[DEBUG] my request_options",
-        dict(
-            challenge=challenge,
-            timeout=timeout,
-            rp_id=rp_id,
-            allow_credentials=allow_creds_reps,
-            user_verification=uv,
-        ),
-    )
+    logger.debug(f"request_options: {pubkey_req_opts}")
     # assertions, client_data = client.get_assertion(request_options["publicKey"], pin=pin)
-    selection = client.get_assertion(request_options["publicKey"])
+    selection = client.get_assertion(pubkey_req_opts)
+    result = selection.get_response(0)  # Returns an AuthenticationResponse
+    logger.debug(f"Authentication response: {result}")
+    response = result.response  # Extract the AuthenticatorAssertionResponse
+    logger.debug(f"Authenticator assertion response: {response}")
     assertions = selection.get_assertions()
     assertion = assertions[0]  # Only one cred in allowCredentials, only one response.
-    authenticator_assertion_response = selection.get_response(0)
-    logger.debug("ASSERTION DATA:", assertion)
+    # authenticator_assertion_response = selection.get_response(0)
     logger.info("FIDO2 Authenticator successfully validated challenge.")
-    return assertion, authenticator_assertion_response.client_data
+    return assertion, response.client_data

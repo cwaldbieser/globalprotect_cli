@@ -173,6 +173,7 @@ def _perform_duo_webauthn(session, parsed_url, sid, xsrf_token):
         session, parsed_url, sid, factor.value, device
     )
     wcro = _get_webauth_credential_request_options(session, parsed_url, sid, txid)
+    logger.debug(f"WebAuthN credential request options: {wcro}")
     session_id = wcro["sessionId"]
     origin = _create_webauthn_origin(parsed_url)
     assertion, client_data = present_challenge_to_authenticator(wcro, origin)
