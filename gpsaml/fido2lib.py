@@ -72,7 +72,7 @@ def get_pcsc_fido2_client(connection, reader_name, origin):
             connection.connect()
             break
         except NoCardException:
-            print("Please insert card.")
+            write_to_tty("Please insert card.")
             time.sleep(5)
     logger.debug(f"Card ATR: {toHexString(connection.getATR())}")
     ctap_device = CtapPcscDevice(connection, reader_name)
@@ -91,7 +91,7 @@ def create_ctap_device_from_card_reader(card_reader):
             connection.connect()
             break
         except NoCardException:
-            print("Please insert card.")
+            write_to_tty("Please insert card.")
             time.sleep(5)
     logger.debug(f"Card ATR: {toHexString(connection.getATR())}")
     ctap_device = CtapPcscDevice(connection, str(card_reader))
@@ -145,6 +145,21 @@ def interactive_select_device(device_map):
     return device_map[selection]
 
 
+def write_to_tty(message):
+    """
+    Write a message to the TTY.
+    """
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+        tty = io.FileIO(fd, "w+")
+        stream = io.TextIOWrapper(tty)
+        stream.write(f"\n{message}\n")
+        stream.flush()
+    except Exception as ex:
+        logger.warn("Could not write to current TTY.")
+        logger.exception(ex)
+
+
 def present_challenge_to_authenticator(
     webauthn_cred_req_opts, origin='"https://api-6bfb7da1.duosecurity.com'
 ):
@@ -166,16 +181,7 @@ def present_challenge_to_authenticator(
 
         # Authenticate the credential
         logger.debug("You may need to touch your authenticator device now...")
-        try:
-            fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
-            tty = io.FileIO(fd, "w+")
-            stream = io.TextIOWrapper(tty)
-            stream.write("\nYou may need to touch your authenticator device now...\n")
-            stream.flush()
-        except Exception as ex:
-            logger.warn("FIDO2 Could not write to current TTY.")
-            logger.exception(ex)
-
+        write_to_tty("You may need to touch your authenticator device now...")
         allowed_creds = []
         allow_creds_reps = []
         for entry in webauthn_cred_req_opts["allowCredentials"]:
