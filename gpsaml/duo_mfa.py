@@ -86,11 +86,13 @@ def select_factor(duo_prompt_config):
     """
     supported_methods = [item.value for item in DuoAuthnFactor]
     auth_methods = duo_prompt_config["response"]["auth_method_order"]
+    logger.debug(f"Duo auth methods: {auth_methods}")
     factors = [
         entry["factor"]
         for entry in auth_methods
         if entry["factor"] in supported_methods
     ]
+    logger.debug(f"Duo factors: {factors}")
     selected_factor = os.environ.get("DUO_FACTOR")
     if selected_factor not in factors:
         session = PromptSession()
