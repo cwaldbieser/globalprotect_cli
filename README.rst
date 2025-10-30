@@ -19,8 +19,7 @@ Installing `pipenv`
 If you are unfamiliar with `pipenv`, the docs are at
 https://pipenv.pypa.io/en/latest/ . In brief, if you run:
 
-..
-   code::bash
+.. code:: bash
 
    $ pip install --user pipenv
 
