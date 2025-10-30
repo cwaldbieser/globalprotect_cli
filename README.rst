@@ -73,7 +73,7 @@ All methods assume you are using the Duo Universal Prompt.
 
 Below is a sample script that takes 2 arguments-- your GlobalProtect
 base URL and your username. It must have permission to run the
-openconnect software (i.e. you might need to run as root). Your
+openconnect software (i.e. you might need to run with `sudo -E`). Your
 OpenConnect client must be modern enough to support the "gp" protocol.
 
 .. code:: shell
@@ -103,6 +103,7 @@ OpenConnect client must be modern enough to support the "gp" protocol.
    fi
 
    export DUO_FACTOR='WebAuthn Security Key'
+   export CTAP_DEVICE='Yubico Yubikey 4 OTP+U2F+CCID'
    PRELOGIN="$GP_ENDPOINT/ssl-vpn/prelogin.esp"
    cd "$GP_CLI_SOFTWARE_DIR"
    eval $($PIPENV run ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa -l ERROR)
