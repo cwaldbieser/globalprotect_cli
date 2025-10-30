@@ -2,8 +2,14 @@ import xml.etree.cElementTree as ET
 from html import escape
 from html.parser import HTMLParser
 
+from logzero import logger
+
 
 class FormParserError(Exception):
+    pass
+
+
+class FormNotFoundError(Exception):
     pass
 
 
@@ -31,7 +37,9 @@ class FormParser(HTMLParser):
         # so that the output will be suitable to be fed into an ET later.
         parts = []
         for k, v in d.items():
-            escaped_value = escape(v)  # pylint: disable=deprecated-method
+            if v is None:
+                v = ""
+            escaped_value = escape(v, quote=True)
             parts.append('%s="%s"' % (k, escaped_value))
         return " ".join(sorted(parts))
 
@@ -55,7 +63,8 @@ class FormParser(HTMLParser):
                 found = True
                 break
         if not found:
-            raise Exception("Could not find form with ID `{}`.".format(form_id))
+            raise FormNotFoundError(f"Could not find form with ID '{form_id}'.")
+        logger.debug(f"Found for with ID '{form_id}' at index {n}.")
         return self.extract_form(n)
 
     def error(self, message):

@@ -45,10 +45,18 @@ All methods assume you are using the Duo Universal Prompt.
    factor/device you'd like to use interactively, you should set the
    following environment variables as needed:
 
-   -  DUO_FACTOR
-   -  DUO_DEVICE
+   -  DUO_FACTOR : 'Duo Push' or 'WebAuthn Security Key'
+   -  DUO_DEVICE : Used to select phones for 'Duo Push' factor. A
+      20-char string of numbers and letters.
+   -  CTAP_DEVICE: Name of a CTAP device, or 'Smart card reader'. e.g.
+      'Yubico Yubikey 4 OTP+U2F+CCID'
+   -  CTAP_CARD_READER: Name of a smart card reader. E.g. 'ACS ACR122U
+      PICC Interface 01 00'
 
-   Supported factors are 'Duo Push' and 'WebAuthn Security Key'.
+   When run interactively, tab completion is available to select values
+   for various settings. The displayed settings are the same values you
+   can place in the corresponding environment variables to prevent
+   having to select options.
 
 ***************
  Example Usage

@@ -1,4 +1,3 @@
-*.conf
+openssl.conf
 *.sh
-*.pyc
-
+example*.py

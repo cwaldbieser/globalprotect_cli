@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+import json
 import logging
 from urllib.parse import urljoin, urlparse
 
@@ -19,6 +20,8 @@ def main(args):
     The main entrypoint.
     """
     logzero.loglevel(getattr(logging, args.log_level))
+    if args.log_file is not None:
+        logzero.logfile(args.log_file)
     s = requests.Session()
     s.headers["User-Agent"] = "PAN GlobalProtect"
 
@@ -28,19 +31,64 @@ def main(args):
     else:
         saml_resp = make_authn_request(s, args.test_auth_endpoint)
     authn_resp = authn_user_passwd(s, saml_resp, args.username)
+    msg = f"authn_resp.status_code: {authn_resp.status_code}"
+    logger.debug(msg)
+    msg = f"authn_resp.url: {authn_resp.url}"
+    logger.debug(msg)
+    # with open("/tmp/post-passwd-authn.html", "w", encoding="utf-8") as f:
+    #     print(authn_resp.text, file=f)
+    browser_storage = None
     if args.duo_mfa:
-        authn_resp = authn_duo_mfa(s, authn_resp)
+        if args.client_side_duo:
+            duo_url, browser_storage = parse_duo_url_from_cas(authn_resp)
+            msg = f"DUO url: {duo_url}"
+            logger.debug(msg)
+            authn_resp = authn_duo_mfa(s, duo_login_url=duo_url)
+        else:
+            authn_resp = authn_duo_mfa(s, response=authn_resp)
     if args.test_auth_endpoint:
         return
+    logger.debug(f"HTTP status: {authn_resp.status_code}")
+    # with open("/tmp/temp.html", "w") as f:
+    #     print(authn_resp.text, file=f)
+    if args.duo_mfa and args.client_side_duo:
+        fm1 = get_form_from_response(authn_resp, form_index=None, form_id="fm1")
+        fm1 = form_to_dict(fm1)
+        payload = {}
+        payload[browser_storage["context"]] = browser_storage["payload"]
+        fm1["browserStorage"] = json.dumps(payload)
+        logger.debug(f"URL: {authn_resp.url}")
+        new_resp = s.post(authn_resp.url, data=fm1)
+        logger.debug(f"URL: {new_resp.url}")
+        logger.debug(f"HTTPS status: {new_resp.status_code}")
+        authn_resp = new_resp
     gp_resp = send_saml_response_to_globalprotect(s, authn_resp)
     log_saml_headers(gp_resp.headers)
     p = urlparse(prelogin_endpoint)
     host = p.netloc.split(":")[0]
     user = gp_resp.headers["saml-username"]
     cookie = gp_resp.headers["prelogin-cookie"]
-    exports = dict(VPN_HOST=host, VPN_USER=user, COOKIE=cookie)
+    exports = {"VPN_HOST": host, "VPN_USER": user, "COOKIE": cookie}
     for key, value in exports.items():
-        print("export {}={}".format(key, value))
+        print(f"export {key}={value}")
+
+
+def parse_duo_url_from_cas(resp):
+    """
+    Parse the Duo security URL from the CAS POST response.
+    """
+    html = resp.text
+    prefix = "const browserStorage = "
+    prefix_size = len(prefix)
+    for line in html.split("\n"):
+        line = line.strip()
+        if line.startswith(prefix):
+            line = line[prefix_size:]
+            line = line.rstrip(";")
+            o = json.loads(line)
+            url = o["destinationUrl"]
+            return url, o
+    return None
 
 
 def make_saml_request(s, prelogin_endpoint):
@@ -112,7 +160,7 @@ def authn_user_passwd(s, resp, username):
     Additionally perform any other authentication required (e.g. MFA).
     Return the SAML response.
     """
-    form = get_form_from_response(resp, form_index=1)
+    form = get_form_from_response(resp, form_id="fm1")
     form_url = resp.url
     logger.debug(f"Form URL: {form_url}")
     form_action = urljoin(
@@ -124,7 +172,6 @@ def authn_user_passwd(s, resp, username):
         key = tag.attrib["name"]
         value = tag.attrib.get("value", "")
         payload[key] = value
-    logger.debug(f"Unfilled form fields: {payload}")
     payload["username"] = username
     passwd = getpass.getpass()
     payload["password"] = passwd
@@ -133,6 +180,9 @@ def authn_user_passwd(s, resp, username):
 
 
 def log_saml_headers(headers):
+    """
+    Log headers realted to a GlobalProtect SAML assertion.
+    """
     saml_headers = {}
     for k, v in headers.items():
         if k.lower().startswith("saml-"):
@@ -157,9 +207,17 @@ if __name__ == "__main__":
         help="The log level to use.",
     )
     parser.add_argument(
+        "--log-file", action="store", help="Path of the log file to send log events to."
+    )
+    parser.add_argument(
         "--duo-mfa",
         action="store_true",
         help="Use Duo MFA",
+    )
+    parser.add_argument(
+        "--client-side-duo",
+        action="store_true",
+        help="Indicate Duo MFA uses client-side CAS integration.",
     )
     parser.add_argument(
         "-t",
@@ -167,5 +225,5 @@ if __name__ == "__main__":
         action="store",
         help="Test authentication endpoint, used for development.",
     )
-    args = parser.parse_args()
-    main(args)
+    cli_args = parser.parse_args()
+    main(cli_args)
