@@ -92,8 +92,6 @@ OpenConnect client must be modern enough to support the "gp" protocol.
    #! /bin/bash
 
    # Requires Python 3.x
-   # Set this to the full path of your pipenv executable.
-   PIPENV=/root/.local/bin/pipenv
    # Set this to the folder where this project is located.
    GP_CLI_SOFTWARE_DIR=/opt/globalprotect_cli
 
@@ -113,11 +111,13 @@ OpenConnect client must be modern enough to support the "gp" protocol.
        exit 1
    fi
 
+   # Comment out everything below this line if you want to interactively see what options are available.
    export DUO_FACTOR='WebAuthn Security Key'
    export CTAP_DEVICE='Yubico Yubikey 4 OTP+U2F+CCID'
+
    PRELOGIN="$GP_ENDPOINT/ssl-vpn/prelogin.esp"
    cd "$GP_CLI_SOFTWARE_DIR"
-   eval $($PIPENV run ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa -l ERROR)
+   eval $(./.venv/bin/python3 ./login.py "$PRELOGIN" "$SSO_USER" --duo-mfa -l ERROR)
    echo "VPN_HOST: $VPN_HOST"
    echo "VPN_USER: $VPN_USER"
    echo "COOKIE:   $COOKIE"
