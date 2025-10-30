@@ -26,6 +26,18 @@ https://pipenv.pypa.io/en/latest/ . In brief, if you run:
 This will install `pipenv` at ~/.local/bin/pipenv for the current user
 on most Linux systems.
 
+I like to use `pipx` to install my Python CLI tools. See
+https://pipx.pypa.io/stable/
+
+Basically:
+
+.. code:: shell
+
+   $ python3 -m pip install --user --upgrade pipx
+   $ pipx install pipenv
+   $ cd ~/git-repos/globalprotect_cli
+   $ pipenv install
+
 *********
  Duo MFA
 *********
