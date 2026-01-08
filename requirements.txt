@@ -13,5 +13,5 @@ pycparser==2.22; python_version >= '3.8'
 pygments==2.18.0; python_version >= '3.8'
 requests==2.32.4; python_version >= '3.8'
 rich==13.8.1; python_full_version >= '3.7.0'
-urllib3==2.5.0; python_version >= '3.8'
+urllib3==2.6.3; python_version >= '3.8'
 wcwidth==0.2.13
