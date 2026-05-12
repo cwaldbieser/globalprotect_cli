@@ -218,9 +218,7 @@ def present_challenge_to_authenticator(
         response = result.response  # Extract the AuthenticatorAssertionResponse
         logger.debug(f"Authenticator assertion response: {response}")
         assertions = selection.get_assertions()
-        assertion = assertions[
-            0
-        ]  # Only one cred in allowCredentials, only one response.
-        # authenticator_assertion_response = selection.get_response(0)
+        # Only one cred in allowCredentials, only one response.
+        assertion = assertions[0]
     logger.info("FIDO2 Authenticator successfully validated challenge.")
     return assertion, response.client_data

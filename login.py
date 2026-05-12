@@ -15,6 +15,10 @@ from gpsaml.html_parsers import form_to_dict, get_form_from_html, get_form_from_
 from gpsaml.xml_parser import parse_prelogin
 
 
+def print_url(r, *args, **kwargs):
+    logger.debug(f"REQUESTED URL: {r.status_code} {r.request.method} {r.url}")
+
+
 def main(args):
     """
     The main entrypoint.
@@ -24,6 +28,7 @@ def main(args):
         logzero.logfile(args.log_file)
     s = requests.Session()
     s.headers["User-Agent"] = "PAN GlobalProtect"
+    s.hooks["response"].append(print_url)
 
     if not args.test_auth_endpoint:
         prelogin_endpoint = args.prelogin
