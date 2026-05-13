@@ -30,6 +30,7 @@ class DuoAuthNResponseError(Exception):
     """
 
 
+headers = {}
 browser_features = json.dumps(
     {
         "touch_supported": False,
@@ -70,30 +71,17 @@ def authn_duo_mfa(session, duo_login_url=None, response=None):
     logger.info("Starting DUO MFA flow ...")
     login_url = response.url
     logger.debug(f"DUO login_url: {login_url}")
-    # Login URL looks like:
-    # /prompt/DAC8TIBYEC3Q22PRKFW2?authkey=AXOB3PN4G2XJ2FJDILYF&req_trace_group=80ca7f6e96796886f7f7bf2c
-    # p.path.split("/")[-1] is some important identifier that is used in the conversation.
-    # param `authkey` is also important.
     p = urlparse(login_url)
     duo_akey = p.path.split("/")[-1]
     params = parse_qs(p.query)
     duo_authkey = params["authkey"][0]
     duo_req_trace_group = params["req_trace_group"][0]
-    # duo_req_trace_group = params["req_trace_group"]
-    # logger.debug(f"HTML response: {response.text}")
-    # form_node = get_form_from_response(response, form_id="plugin_form")
-    # form_data = form_to_dict(form_node)
-    # # At this point, have the sid, tx, _xsrf
-    # logger.debug(f"params: {params}")
-    # logger.debug(f"form_data: {form_data}")
-    # return _perform_duo_universal_prompt_flow(session, p, params, form_data)
     return _perform_duo_universal_prompt_flow(
         session, p, duo_akey, duo_authkey, duo_req_trace_group
     )
 
 
 def _duo_flow_step_1(duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session):
-    headers = {"X-Duo-Req-Trace-Group": duo_req_trace_group}
     qs = {
         "authkey": duo_authkey,
     }
@@ -124,12 +112,10 @@ def _duo_flow_step_1(duo_req_trace_group, duo_authkey, parsed_url, duo_akey, ses
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_1_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return headers, response, data
+    return response, data
 
 
-def _duo_flow_step_2_browser_features(
-    duo_authkey, parsed_url, duo_akey, session, headers
-):
+def _duo_flow_step_2_browser_features(duo_authkey, parsed_url, duo_akey, session):
     qs = {
         "authkey": duo_authkey,
         "browser_features": browser_features,
@@ -156,9 +142,7 @@ def _duo_flow_step_2_browser_features(
     return duo_ikey, duo_ukey, response, json_response
 
 
-def _duo_flow_step_3(
-    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-):
+def _duo_flow_step_3(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
     qs = {
         "authkey": duo_authkey,
     }
@@ -197,7 +181,7 @@ def _duo_flow_step_3(
     return response, data
 
 
-def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session, headers):
+def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session):
     payload = {
         "brands": [
             {"brand": "Google Chrome", "version": "147"},
@@ -238,9 +222,7 @@ def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session, he
     return response
 
 
-def _duo_flow_step_5(
-    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-):
+def _duo_flow_step_5(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
     qs = {
         "authkey": duo_authkey,
     }
@@ -279,11 +261,7 @@ def _duo_flow_step_5(
     return data, response
 
 
-def _duo_flow_step_6(
-    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-):
-    # (6)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+def _duo_flow_step_6(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
     qs = {
         "authkey": duo_authkey,
     }
@@ -323,9 +301,7 @@ def _duo_flow_step_6(
     return response, data
 
 
-def _duo_flow_step_7_available_factors(
-    duo_authkey, parsed_url, duo_akey, session, headers
-):
+def _duo_flow_step_7_available_factors(duo_authkey, parsed_url, duo_akey, session):
     qs = {
         "authkey": duo_authkey,
         "browser_features": browser_features,
@@ -360,12 +336,10 @@ def _duo_flow_step_7_available_factors(
     #     "requires_sms_compliance_text": false,
     #     "end_of_number": "1234"
     # }
-    return response, browser_features, json_response
+    return response, json_response
 
 
-def _duo_flow_step_8(
-    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-):
+def _duo_flow_step_8(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
     qs = {
         "authkey": duo_authkey,
     }
@@ -409,7 +383,7 @@ def _duo_flow_step_8(
     return response, data
 
 
-def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session, headers):
+def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session):
     browser_features = json.dumps(
         {
             "touch_supported": False,
@@ -511,7 +485,6 @@ def _duo_flow_step_10_complete_webauthn(
     encoded_client_data_json,
     encoded_signature,
     session,
-    headers,
 ):
     passkey_headers = {
         "Sec-Fetch-Dest": "empty",
@@ -575,7 +548,6 @@ def _duo_flow_step_11(
     duo_ikey,
     duo_ukey,
     session,
-    headers,
 ):
     qs = {
         "authkey": duo_authkey,
@@ -639,7 +611,6 @@ def _duo_flow_step_12(
     duo_ikey,
     duo_ukey,
     session,
-    headers,
 ):
     qs = {
         "authkey": duo_authkey,
@@ -697,7 +668,7 @@ def _duo_flow_step_12(
     return data, response, qs, query
 
 
-def _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session, headers):
+def _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session):
     duo_step_13_url = urlunparse(
         (
             parsed_url.scheme,
@@ -716,7 +687,7 @@ def _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session, headers):
     return data, response
 
 
-def _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session, headers):
+def _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session):
     duo_step_14_url = urlunparse(
         (
             parsed_url.scheme,
@@ -738,7 +709,7 @@ def _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session, headers):
     return response
 
 
-def _duo_flow_step_15_finalie_auth(duo_authkey, parsed_url, duo_akey, session, headers):
+def _duo_flow_step_15_finalie_auth(duo_authkey, parsed_url, duo_akey, session):
     qs = {
         "authkey": duo_authkey,
     }
@@ -762,6 +733,37 @@ def _duo_flow_step_15_finalie_auth(duo_authkey, parsed_url, duo_akey, session, h
     return exit_url, response
 
 
+def _duo_flow_beginning_steps(
+    duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
+):
+    response, data = _duo_flow_step_1(
+        duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
+    )
+    duo_ikey, duo_ukey, response, json_response = _duo_flow_step_2_browser_features(
+        duo_authkey, parsed_url, duo_akey, session
+    )
+    response, data = _duo_flow_step_3(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
+    )
+    response = _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session)
+    data, response = _duo_flow_step_5(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
+    )
+    response, data = _duo_flow_step_6(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
+    )
+    response, json_response = _duo_flow_step_7_available_factors(
+        duo_authkey, parsed_url, duo_akey, session
+    )
+    response, data = _duo_flow_step_8(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
+    )
+    credential_request_options, session_id, response, json_response = (
+        _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session)
+    )
+    return credential_request_options, session_id, duo_ikey, duo_ukey, response
+
+
 def _perform_duo_universal_prompt_flow(
     session, parsed_url, duo_akey, duo_authkey, duo_req_trace_group
 ):
@@ -769,35 +771,10 @@ def _perform_duo_universal_prompt_flow(
     Perform the Duo Universal Prompt flow.
     Returns the final response.
     """
-    headers, response, data = _duo_flow_step_1(
-        duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
-    )
-
-    duo_ikey, duo_ukey, response, json_response = _duo_flow_step_2_browser_features(
-        duo_authkey, parsed_url, duo_akey, session, headers
-    )
-    response, data = _duo_flow_step_3(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-    )
-
-    response = _duo_flow_step_4_preauth_init(
-        duo_authkey, parsed_url, duo_akey, session, headers
-    )
-    data, response = _duo_flow_step_5(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-    )
-    response, data = _duo_flow_step_6(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-    )
-    response, browser_features, json_response = _duo_flow_step_7_available_factors(
-        duo_authkey, parsed_url, duo_akey, session, headers
-    )
-    response, data = _duo_flow_step_8(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
-    )
-    credential_request_options, session_id, response, json_response = (
-        _duo_flow_step_9_passkey_init(
-            duo_authkey, parsed_url, duo_akey, session, headers
+    headers["X-Duo-Req-Trace-Group"] = duo_req_trace_group
+    credential_request_options, session_id, duo_ikey, duo_ukey, response = (
+        _duo_flow_beginning_steps(
+            duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
         )
     )
     (
@@ -823,7 +800,6 @@ def _perform_duo_universal_prompt_flow(
             encoded_client_data_json,
             encoded_signature,
             session,
-            headers,
         )
     )
     data, response = _duo_flow_step_11(
@@ -834,7 +810,6 @@ def _perform_duo_universal_prompt_flow(
         duo_ikey,
         duo_ukey,
         session,
-        headers,
     )
     data, response, qs, query = _duo_flow_step_12(
         duo_authkey,
@@ -844,14 +819,11 @@ def _perform_duo_universal_prompt_flow(
         duo_ikey,
         duo_ukey,
         session,
-        headers,
     )
-    data, response = _duo_flow_step_13(
-        parsed_url, duo_akey, duo_authkey, session, headers
-    )
-    response = _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session, headers)
+    data, response = _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session)
+    response = _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session)
     exit_url, response = _duo_flow_step_15_finalie_auth(
-        duo_authkey, parsed_url, duo_akey, session, headers
+        duo_authkey, parsed_url, duo_akey, session
     )
     response = session.get(exit_url)
     # device, device_key, factor = select_factor(duo_prompt_config)
