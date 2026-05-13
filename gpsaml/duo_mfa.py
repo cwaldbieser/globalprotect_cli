@@ -10,7 +10,7 @@ from logzero import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import FuzzyWordCompleter
 
-from .fido2lib import present_challenge_to_authenticator
+from .fido2lib import present_challenge_to_authenticator, write_to_tty
 
 DUO_POLL_SECONDS = 10
 
@@ -112,7 +112,6 @@ def _duo_flow_step_1(duo_req_trace_group, duo_authkey, parsed_url, duo_akey, ses
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_1_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return response, data
 
 
 def _duo_flow_step_2_browser_features(duo_authkey, parsed_url, duo_akey, session):
@@ -139,7 +138,7 @@ def _duo_flow_step_2_browser_features(duo_authkey, parsed_url, duo_akey, session
     logger.debug(f"Duo ikey: {duo_ikey}")
     duo_ukey = json_response["response"]["ukey"]
     logger.debug(f"Duo ukey: {duo_ukey}")
-    return duo_ikey, duo_ukey, response, json_response
+    return duo_ikey, duo_ukey
 
 
 def _duo_flow_step_3(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
@@ -178,7 +177,6 @@ def _duo_flow_step_3(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, sess
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_3_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return response, data
 
 
 def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session):
@@ -219,7 +217,6 @@ def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session):
     logger.debug(f"Duo flow URL 4: {duo_step_4_url}")
     response = session.get(duo_step_4_url, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return response
 
 
 def _duo_flow_step_5(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
@@ -258,7 +255,6 @@ def _duo_flow_step_5(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, sess
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_5_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return data, response
 
 
 def _duo_flow_step_6(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
@@ -298,8 +294,6 @@ def _duo_flow_step_6(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, sess
     response = session.post(duo_step_6_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
 
-    return response, data
-
 
 def _duo_flow_step_7_available_factors(duo_authkey, parsed_url, duo_akey, session):
     qs = {
@@ -327,7 +321,7 @@ def _duo_flow_step_7_available_factors(duo_authkey, parsed_url, duo_akey, sessio
     ]
     push_devices = []
     for factor in available_factors:
-        if factor.get("factory_type") == "push":
+        if factor.get("factor_type") == "push":
             push_devices.append(factor["device_info"])
     # Each device entry looks like:
     # {
@@ -336,7 +330,7 @@ def _duo_flow_step_7_available_factors(duo_authkey, parsed_url, duo_akey, sessio
     #     "requires_sms_compliance_text": false,
     #     "end_of_number": "1234"
     # }
-    return response, json_response
+    return push_devices
 
 
 def _duo_flow_step_8(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session):
@@ -380,7 +374,6 @@ def _duo_flow_step_8(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, sess
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_8_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
-    return response, data
 
 
 def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session):
@@ -423,7 +416,7 @@ def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session):
     )
     session_id = json_response["response"]["session_id"]
     logger.debug(f"Session ID: {session_id}")
-    return credential_request_options, session_id, response, json_response
+    return credential_request_options, session_id
 
 
 def _present_challenge_to_authenticator(
@@ -736,47 +729,35 @@ def _duo_flow_step_15_finalie_auth(duo_authkey, parsed_url, duo_akey, session):
 def _duo_flow_beginning_steps(
     duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
 ):
-    response, data = _duo_flow_step_1(
-        duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
-    )
-    duo_ikey, duo_ukey, response, json_response = _duo_flow_step_2_browser_features(
+    _duo_flow_step_1(duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session)
+    duo_ikey, duo_ukey = _duo_flow_step_2_browser_features(
         duo_authkey, parsed_url, duo_akey, session
     )
-    response, data = _duo_flow_step_3(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
-    )
-    response = _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session)
-    data, response = _duo_flow_step_5(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
-    )
-    response, data = _duo_flow_step_6(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
-    )
-    response, json_response = _duo_flow_step_7_available_factors(
+    _duo_flow_step_3(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session)
+    _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session)
+    _duo_flow_step_5(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session)
+    _duo_flow_step_6(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session)
+    push_devices = _duo_flow_step_7_available_factors(
         duo_authkey, parsed_url, duo_akey, session
     )
-    response, data = _duo_flow_step_8(
-        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session
+    _duo_flow_step_8(duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session)
+    credential_request_options, session_id = _duo_flow_step_9_passkey_init(
+        duo_authkey, parsed_url, duo_akey, session
     )
-    credential_request_options, session_id, response, json_response = (
-        _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session)
-    )
-    return credential_request_options, session_id, duo_ikey, duo_ukey, response
+    return credential_request_options, session_id, duo_ikey, duo_ukey, push_devices
 
 
-def _perform_duo_universal_prompt_flow(
-    session, parsed_url, duo_akey, duo_authkey, duo_req_trace_group
+def _perform_duo_flow_webauthn_steps(
+    parsed_url,
+    credential_request_options,
+    session,
+    duo_req_trace_group,
+    duo_authkey,
+    duo_akey,
+    session_id,
+    duo_ikey,
+    duo_ukey,
 ):
-    """
-    Perform the Duo Universal Prompt flow.
-    Returns the final response.
-    """
-    headers["X-Duo-Req-Trace-Group"] = duo_req_trace_group
-    credential_request_options, session_id, duo_ikey, duo_ukey, response = (
-        _duo_flow_beginning_steps(
-            duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
-        )
-    )
     (
         encoded_credential_id,
         encoded_auth_data,
@@ -820,35 +801,334 @@ def _perform_duo_universal_prompt_flow(
         duo_ukey,
         session,
     )
+    return response
+
+
+def _perform_duo_push_steps(
+    parsed_url,
+    session,
+    duo_req_trace_group,
+    duo_authkey,
+    duo_akey,
+    duo_ikey,
+    duo_ukey,
+    push_devices,
+):
+    pkey = select_mfa_device(push_devices)
+    _duo_push_flow_step_a(
+        session,
+        duo_authkey,
+        parsed_url,
+        duo_akey,
+        duo_ikey,
+        duo_ukey,
+        pkey,
+    )
+    push_txid, step_up_code = _duo_push_flow_step_b(
+        session, duo_authkey, parsed_url, duo_akey, pkey
+    )
+    if step_up_code is not None:
+        write_to_tty(f"VERIFIED PUSH CODE: {step_up_code}")
+    authenticated = False
+    while not authenticated:
+        authenticated = _duo_push_flow_step_c(
+            session, duo_authkey, parsed_url, duo_akey, push_txid
+        )
+        time.sleep(2)
+    _duo_push_flow_step_d(
+        session, duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, pkey
+    )
+    _duo_push_flow_step_e(
+        session, duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, pkey
+    )
+
+
+def _duo_push_flow_step_a(
+    session, duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, pkey
+):
+    qs = {
+        "authkey": duo_authkey,
+    }
+    query = urlencode(qs)
+    endpoint_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            f"/prompt/{duo_akey}/auth/browser_events",
+            "",
+            query,
+            "",
+        )
+    )
+    data = {
+        "context": {
+            "current_view": "duo_push",
+            "view_history": (
+                "pre_authn_init,device_health,pre_authn_eval,"
+                "passkey,other_options,duo_push"
+            ),
+            "message": "Browser event",
+            "card_name": "DuoPushCard",
+            "active_auth_method": {
+                "id": "DUO_PUSH",
+                "authenticator_key": pkey,
+            },
+            "akey": duo_akey,
+            "authn_result": {"status": "unperformed"},
+            "available_auth_method_types": (
+                "cross_platform,push,mobile_otp," "sms_otp,phone_call,bypass_code"
+            ),
+            "can_opt_out_of_push": False,
+            "ikey": duo_ikey,
+            "platform_authenticator_status": "unavailable",
+            "platform_id": "unknown",
+            "ukey": duo_ukey,
+            "auth_flow": "mfa",
+        },
+        "name": "card_visit",
+        "level": "info",
+    }
+    logger.debug(f"Duo push flow A URL: {endpoint_url}")
+    logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
+    response = session.post(endpoint_url, json=data, headers=headers)
+    logger.debug(f"HTTP Response: {response.text}")
+
+
+def _duo_push_flow_step_b(session, duo_authkey, parsed_url, duo_akey, pkey):
+    qs = {
+        "authkey": duo_authkey,
+    }
+    query = urlencode(qs)
+    endpoint_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            f"/prompt/{duo_akey}/auth/factors/push/auth",
+            "",
+            query,
+            "",
+        )
+    )
+    data = {"authkey": duo_authkey, "pkey": pkey}
+
+    logger.debug(f"Duo push flow B URL: {endpoint_url}")
+    logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
+    response = session.post(endpoint_url, json=data, headers=headers)
+    logger.debug(f"HTTP Response: {response.text}")
+    json_response = response.json()
+    push_txid = json_response["response"]["push_txid"]
+    step_up_code = json_response["response"].get("step_up_code")
+    return push_txid, step_up_code
+
+
+def _duo_push_flow_step_c(session, duo_authkey, parsed_url, duo_akey, push_txid):
+    qs = {
+        "authkey": duo_authkey,
+        "push_txid": push_txid,
+        "saw_good_news": False,
+    }
+    query = urlencode(qs)
+    endpoint_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            f"/prompt/{duo_akey}/auth/factors/push/status",
+            "",
+            query,
+            "",
+        )
+    )
+    logger.debug(f"Duo push flow C URL: {endpoint_url}")
+    response = session.get(endpoint_url, headers=headers)
+    logger.debug(f"HTTP Response: {response.text}")
+    json_response = response.json()
+    result = json_response["response"]["result"]["result"]
+    if result == "STATUS":
+        return False
+    if result == "SUCCESS":
+        return True
+    raise NotImplementedError(f"Unknown result code '{result}'.")
+
+
+def _duo_push_flow_step_d(
+    session, duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, pkey
+):
+    qs = {
+        "authkey": duo_authkey,
+    }
+    query = urlencode(qs)
+    endpoint_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            f"/prompt/{duo_akey}/auth/browser_events",
+            "",
+            query,
+            "",
+        )
+    )
+    data = {
+        "context": {
+            "current_view": "browser_trust",
+            "view_history": (
+                "pre_authn_init,device_health,"
+                "pre_authn_eval,passkey,other_options,"
+                "duo_push,browser_trust"
+            ),
+            "message": "Browser event",
+            "card_name": "TrustBrowserCard",
+            "active_auth_method": {
+                "id": "DUO_PUSH",
+                "authenticator_key": pkey,
+            },
+            "akey": duo_akey,
+            "authn_result": {
+                "status": "success",
+                "evaluation": {
+                    "is_allowed": True,
+                    "auth_method_type": "push",
+                    "authenticator_key": pkey,
+                    "status_enum": 5,
+                    "request_browser_trust": True,
+                },
+            },
+            "available_auth_method_types": (
+                "cross_platform,push,mobile_otp," "sms_otp,phone_call,bypass_code"
+            ),
+            "can_opt_out_of_push": False,
+            "ikey": duo_ikey,
+            "platform_authenticator_status": "unavailable",
+            "platform_id": "unknown",
+            "ukey": duo_ukey,
+            "auth_flow": "mfa",
+        },
+        "name": "card_visit",
+        "level": "info",
+    }
+    logger.debug(f"Duo push flow D URL: {endpoint_url}")
+    logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
+    response = session.post(endpoint_url, json=data, headers=headers)
+    logger.debug(f"HTTP Response: {response.text}")
+
+
+def _duo_push_flow_step_e(
+    session, duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, pkey
+):
+    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXOREJ13VKCYWQOWDZPY
+    qs = {
+        "authkey": duo_authkey,
+    }
+    query = urlencode(qs)
+    endpoint_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            f"/prompt/{duo_akey}/auth/browser_events",
+            "",
+            query,
+            "",
+        )
+    )
+    data = {
+        "context": {
+            "current_view": "auth_success",
+            "view_history": (
+                "pre_authn_init,device_health,pre_authn_eval,passkey,"
+                "other_options,duo_push,browser_trust,auth_success"
+            ),
+            "message": "Browser event",
+            "card_name": "SuccessCard",
+            "active_auth_method": {
+                "id": "DUO_PUSH",
+                "authenticator_key": pkey,
+            },
+            "akey": duo_akey,
+            "authn_result": {
+                "status": "success",
+                "evaluation": {
+                    "is_allowed": True,
+                    "auth_method_type": "push",
+                    "authenticator_key": pkey,
+                    "status_enum": 5,
+                    "request_browser_trust": True,
+                },
+            },
+            "available_auth_method_types": (
+                "cross_platform,push,mobile_otp,sms_otp,phone_call,bypass_code"
+            ),
+            "can_opt_out_of_push": False,
+            "ikey": duo_ikey,
+            "platform_authenticator_status": "unavailable",
+            "platform_id": "unknown",
+            "ukey": duo_ukey,
+            "auth_flow": "mfa",
+        },
+        "name": "card_visit",
+        "level": "info",
+    }
+    logger.debug(f"Duo push flow E URL: {endpoint_url}")
+    logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
+    response = session.post(endpoint_url, json=data, headers=headers)
+    logger.debug(f"HTTP Response: {response.text}")
+
+
+def _perform_duo_universal_prompt_flow(
+    session, parsed_url, duo_akey, duo_authkey, duo_req_trace_group
+):
+    """
+    Perform the Duo Universal Prompt flow.
+    Returns the final response.
+    """
+    headers["X-Duo-Req-Trace-Group"] = duo_req_trace_group
+    credential_request_options, session_id, duo_ikey, duo_ukey, push_devices = (
+        _duo_flow_beginning_steps(
+            duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
+        )
+    )
+    # Determine what factor and device are to be used.
+    mfa_factor = DuoAuthnFactor(select_mfa_factor())
+    if mfa_factor == DuoAuthnFactor.DUO_PUSH:
+        _perform_duo_push_steps(
+            parsed_url,
+            session,
+            duo_req_trace_group,
+            duo_authkey,
+            duo_akey,
+            duo_ikey,
+            duo_ukey,
+            push_devices,
+        )
+    elif mfa_factor == DuoAuthnFactor.WEBAUTHN:
+        _perform_duo_flow_webauthn_steps(
+            parsed_url,
+            credential_request_options,
+            session,
+            duo_req_trace_group,
+            duo_authkey,
+            duo_akey,
+            session_id,
+            duo_ikey,
+            duo_ukey,
+        )
+    else:
+        raise NotImplementedError(f"Duo factor '{mfa_factor}' not implemented.")
     data, response = _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session)
     response = _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session)
     exit_url, response = _duo_flow_step_15_finalie_auth(
         duo_authkey, parsed_url, duo_akey, session
     )
     response = session.get(exit_url)
-    # device, device_key, factor = select_factor(duo_prompt_config)
-    # if factor == DuoAuthnFactor.WEBAUTHN.value:
-    #     return _perform_duo_webauthn(session, parsed_url, sid, xsrf_token)
-    # if factor == DuoAuthnFactor.DUO_PUSH.value:
-    #     return _perform_duo_push(
-    #         session, device, device_key, parsed_url, sid, xsrf_token
-    #     )
-    # raise NotImplementedError(f"Factor '{factor}' not implemented.")
     return response
 
 
-def select_factor(duo_prompt_config):
+def select_mfa_factor():
     """
-    Allow the user to interactively select the Duo 2nd factor.
+    Allow the user to interactively select the Duo 2nd factor type.
+    Valid options are:
+        - WebAuthn Security Key
+        - Duo Push
     """
-    supported_methods = [item.value for item in DuoAuthnFactor]
-    auth_methods = duo_prompt_config["response"]["auth_method_order"]
-    logger.debug(f"Duo auth methods: {auth_methods}")
-    factors = [
-        entry["factor"]
-        for entry in auth_methods
-        if entry["factor"] in supported_methods
-    ]
+    factors = [str(item.value) for item in DuoAuthnFactor]
     logger.debug(f"Duo factors: {factors}")
     selected_factor = os.environ.get("DUO_FACTOR")
     if selected_factor not in factors:
@@ -861,47 +1141,43 @@ def select_factor(duo_prompt_config):
             )
             if selected_factor in factors:
                 invalid = False
-    factor_map = {}
-    for entry in auth_methods:
-        factor = entry["factor"]
-        device_key = entry.get("deviceKey")
-        if device_key:
-            factor_map.setdefault(factor, []).append(device_key)
-        else:
-            factor_map[factor] = []
-    devices = factor_map[selected_factor]
-    logger.debug(f"Devices matching factor {selected_factor}: {devices}")
-    if len(devices) == 0:
-        device = "null"
-        device_key = ""
-    else:
-        phones = duo_prompt_config["response"]["phones"]
-        phones = [phone for phone in phones if phone["key"] in devices]
-        phone_choices = [f"phone-{phone['end_of_number']}" for phone in phones]
-        if len(phone_choices) > 1:
-            phone = os.environ.get("DUO_DEVICE")
-            if phone not in phone_choices:
-                session = PromptSession()
-                device_completer = FuzzyWordCompleter(phone_choices)
-                invalid = True
-                while invalid:
-                    phone = session.prompt(
-                        "Select a device > ", completer=device_completer
-                    )
-                    if phone in phone_choices:
-                        invalid = False
-            eon = phone[6:]
-            device = None
-            device_key = None
-            for phone in phones:
-                if phone["end_of_number"] == eon:
-                    device = phone["index"]
-                    device_key = phone["key"]
-                    break
-        else:
-            device = phones[0]["index"]
-            device_key = phones[0]["key"]
-    return device, device_key, selected_factor
+    return selected_factor
+
+
+def select_mfa_device(devices):
+    """
+    Allow the user to interactively select a device.
+    """
+    # {
+    #     "pkey": "SOME_IDENTIFER",
+    #     "name": "\"Android\" (\u2022\u2022\u2022-\u2022\u2022\u2022-1234)",
+    #     "requires_sms_compliance_text": false,
+    #     "end_of_number": "1234"
+    # }
+    logger.debug(f"Devices: {devices}")
+    device_map = {}
+    device_ids = set([])
+    for device in devices:
+        pkey = device["pkey"]
+        name = device["name"]
+        device_map[name] = pkey
+        device_ids.add(pkey)
+    device_names = device_map.keys()
+
+    pkey = os.environ.get("DUO_DEVICE")
+    if pkey in device_ids:
+        return pkey
+    session = PromptSession()
+    device_completer = FuzzyWordCompleter(device_names)
+    invalid = True
+    while invalid:
+        selected_device = session.prompt(
+            "Choose a device > ", completer=device_completer
+        )
+        if selected_device in device_map:
+            invalid = False
+    pkey = device_map[selected_device]
+    return pkey
 
 
 def _perform_duo_push(session, device, device_key, parsed_url, sid, xsrf_token):
