@@ -410,12 +410,16 @@ def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session):
     response = session.get(duo_step_9_url, headers=headers)
     json_response = response.json()
     logger.debug(f"HTTP Response:\n{json.dumps(json_response, indent=4)}")
-    credential_request_options = json_response["response"]["credential_request_options"]
-    logger.debug(
-        f"Credential request options:\n{json.dumps(credential_request_options, indent=4)}"
+    credential_request_options = json_response["response"].get(
+        "credential_request_options"
     )
-    session_id = json_response["response"]["session_id"]
-    logger.debug(f"Session ID: {session_id}")
+    if credential_request_options is not None:
+        logger.debug(
+            f"Credential request options:\n{json.dumps(credential_request_options, indent=4)}"
+        )
+    session_id = json_response["response"].get("session_id")
+    if session_id is not None:
+        logger.debug(f"Session ID: {session_id}")
     return credential_request_options, session_id
 
 
