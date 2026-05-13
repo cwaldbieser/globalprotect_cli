@@ -30,6 +30,20 @@ class DuoAuthNResponseError(Exception):
     """
 
 
+browser_features = json.dumps(
+    {
+        "touch_supported": False,
+        "platform_authenticator_status": "unavailable",
+        "webauthn_supported": True,
+        "screen_resolution_height": 1080,
+        "screen_resolution_width": 1920,
+        "screen_color_depth": 24,
+        "is_uvpa_available": False,
+        "client_capabilities_uvpa": False,
+    }
+)
+
+
 def encode_base64(b):
     """
     Encode bytes as base64.
@@ -78,16 +92,8 @@ def authn_duo_mfa(session, duo_login_url=None, response=None):
     )
 
 
-def _perform_duo_universal_prompt_flow(
-    session, parsed_url, duo_akey, duo_authkey, duo_req_trace_group
-):
-    """
-    Perform the Duo Universal Prompt flow.
-    Returns the final response.
-    """
+def _duo_flow_step_1(duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session):
     headers = {"X-Duo-Req-Trace-Group": duo_req_trace_group}
-    # (1)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
     qs = {
         "authkey": duo_authkey,
     }
@@ -118,21 +124,15 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_1_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return headers, response, data
 
-    # (2) - feature flags
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/payload?authkey=AXV6JB3E1O1PJ77IMFEO&browser_features=%7B%22touch_supported%22%3Afalse%2C%22platform_authenticator_status%22%3A%22unavailable%22%2C%22webauthn_supported%22%3Atrue%2C%22screen_resolution_height%22%3A1080%2C%22screen_resolution_width%22%3A1920%2C%22screen_color_depth%22%3A24%2C%22is_uvpa_available%22%3Afalse%2C%22client_capabilities_uvpa%22%3Afalse%7D
+
+def _duo_flow_step_2_browser_features(
+    duo_authkey, parsed_url, duo_akey, session, headers
+):
     qs = {
         "authkey": duo_authkey,
-        "browser_features": (
-            '{"touch_supported":false,'
-            '"platform_authenticator_status":"unavailable",'
-            '"webauthn_supported":true,'
-            '"screen_resolution_height":1080,'
-            '"screen_resolution_width":1920,'
-            '"screen_color_depth":24,'
-            '"is_uvpa_available":false,'
-            '"client_capabilities_uvpa":false}'
-        ),
+        "browser_features": browser_features,
     }
     query = urlencode(qs)
     duo_step_2_url = urlunparse(
@@ -153,9 +153,12 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"Duo ikey: {duo_ikey}")
     duo_ukey = json_response["response"]["ukey"]
     logger.debug(f"Duo ukey: {duo_ukey}")
+    return duo_ikey, duo_ukey, response, json_response
 
-    # (3)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+
+def _duo_flow_step_3(
+    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+):
     qs = {
         "authkey": duo_authkey,
     }
@@ -191,9 +194,10 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_3_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return response, data
 
-    # (4)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/pre_authn/initialization?authkey=AXV6JB3E1O1PJ77IMFEO&is_ipad=false&client_hints=eyJicmFuZHMiOlt7ImJyYW5kIjoiR29vZ2xlIENocm9tZSIsInZlcnNpb24iOiIxNDcifSx7ImJyYW5kIjoiTm90LkEvQnJhbmQiLCJ2ZXJzaW9uIjoiOCJ9LHsiYnJhbmQiOiJDaHJvbWl1bSIsInZlcnNpb24iOiIxNDcifV0sImZ1bGxWZXJzaW9uTGlzdCI6W3siYnJhbmQiOiJHb29nbGUgQ2hyb21lIiwidmVyc2lvbiI6IjE0Ny4wLjc3MjcuMTM3In0seyJicmFuZCI6Ik5vdC5BL0JyYW5kIiwidmVyc2lvbiI6IjguMC4wLjAifSx7ImJyYW5kIjoiQ2hyb21pdW0iLCJ2ZXJzaW9uIjoiMTQ3LjAuNzcyNy4xMzcifV0sIm1vYmlsZSI6ZmFsc2UsInBsYXRmb3JtIjoiTGludXgiLCJwbGF0Zm9ybVZlcnNpb24iOiIiLCJ1YUZ1bGxWZXJzaW9uIjoiMTQ3LjAuNzcyNy4xMzcifQ==
+
+def _duo_flow_step_4_preauth_init(duo_authkey, parsed_url, duo_akey, session, headers):
     payload = {
         "brands": [
             {"brand": "Google Chrome", "version": "147"},
@@ -231,9 +235,12 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"Duo flow URL 4: {duo_step_4_url}")
     response = session.get(duo_step_4_url, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return response
 
-    # (5)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+
+def _duo_flow_step_5(
+    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+):
     qs = {
         "authkey": duo_authkey,
     }
@@ -269,7 +276,12 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_5_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return data, response
 
+
+def _duo_flow_step_6(
+    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+):
     # (6)
     # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
     qs = {
@@ -308,20 +320,12 @@ def _perform_duo_universal_prompt_flow(
     response = session.post(duo_step_6_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
 
-    # (7) - non-passkey factors
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/pre_authn/evaluation?authkey=AXV6JB3E1O1PJ77IMFEO&browser_features=%7B%22touch_supported%22%3Afalse%2C%22platform_authenticator_status%22%3A%22unavailable%22%2C%22webauthn_supported%22%3Atrue%2C%22screen_resolution_height%22%3A1080%2C%22screen_resolution_width%22%3A1920%2C%22screen_color_depth%22%3A24%2C%22is_uvpa_available%22%3Afalse%2C%22client_capabilities_uvpa%22%3Afalse%7D&local_trust_choice=undecided
-    browser_features = json.dumps(
-        {
-            "touch_supported": False,
-            "platform_authenticator_status": "unavailable",
-            "webauthn_supported": True,
-            "screen_resolution_height": 1080,
-            "screen_resolution_width": 1920,
-            "screen_color_depth": 24,
-            "is_uvpa_available": False,
-            "client_capabilities_uvpa": False,
-        }
-    )
+    return response, data
+
+
+def _duo_flow_step_7_available_factors(
+    duo_authkey, parsed_url, duo_akey, session, headers
+):
     qs = {
         "authkey": duo_authkey,
         "browser_features": browser_features,
@@ -340,10 +344,28 @@ def _perform_duo_universal_prompt_flow(
     )
     logger.debug(f"Duo flow URL 7: {duo_step_7_url}")
     response = session.get(duo_step_7_url, headers=headers)
-    logger.debug(f"HTTP Response: {response.text}")
+    json_response = response.json()
+    logger.debug(f"HTTP Response:\n{json.dumps(json_response, indent=4)}")
+    available_factors = json_response["response"]["available_unified_auth_factors"][
+        "factors"
+    ]
+    push_devices = []
+    for factor in available_factors:
+        if factor.get("factory_type") == "push":
+            push_devices.append(factor["device_info"])
+    # Each device entry looks like:
+    # {
+    #     "pkey": "SOME_IDENTIFER",
+    #     "name": "\"Android\" (\u2022\u2022\u2022-\u2022\u2022\u2022-1234)",
+    #     "requires_sms_compliance_text": false,
+    #     "end_of_number": "1234"
+    # }
+    return response, browser_features, json_response
 
-    # (8)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+
+def _duo_flow_step_8(
+    duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+):
     qs = {
         "authkey": duo_authkey,
     }
@@ -384,9 +406,10 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_8_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return response, data
 
-    # (9) - response contains available passkeys
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/factors/passkey/initialization?authkey=AXV6JB3E1O1PJ77IMFEO&browser_features=%7B%22touch_supported%22%3Afalse%2C%22platform_authenticator_status%22%3A%22unavailable%22%2C%22webauthn_supported%22%3Atrue%2C%22screen_resolution_height%22%3A1080%2C%22screen_resolution_width%22%3A1920%2C%22screen_color_depth%22%3A24%2C%22is_uvpa_available%22%3Afalse%2C%22client_capabilities_uvpa%22%3Afalse%7D&auth_method_type=cross_platform
+
+def _duo_flow_step_9_passkey_init(duo_authkey, parsed_url, duo_akey, session, headers):
     browser_features = json.dumps(
         {
             "touch_supported": False,
@@ -426,8 +449,12 @@ def _perform_duo_universal_prompt_flow(
     )
     session_id = json_response["response"]["session_id"]
     logger.debug(f"Session ID: {session_id}")
+    return credential_request_options, session_id, response, json_response
 
-    # Present challenge to the authenticator.
+
+def _present_challenge_to_authenticator(
+    parsed_url, credential_request_options, session
+):
     origin = _create_webauthn_origin(parsed_url)
     logger.debug(f"Origin: {origin}")
     logger.debug("Sending credential request options to the authenticator ...")
@@ -462,9 +489,30 @@ def _perform_duo_universal_prompt_flow(
     jar = session.cookies
     for cname, cvalue in jar.items():
         logger.debug(f"COOKIE: {cname}: {cvalue}")
+    return (
+        encoded_credential_id,
+        encoded_auth_data,
+        encoded_client_data_json,
+        encoded_signature,
+        jar,
+        cname,
+        cvalue,
+    )
 
-    # (10)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/factors/passkey
+
+def _duo_flow_step_10_complete_webauthn(
+    duo_req_trace_group,
+    duo_authkey,
+    parsed_url,
+    duo_akey,
+    session_id,
+    encoded_credential_id,
+    encoded_auth_data,
+    encoded_client_data_json,
+    encoded_signature,
+    session,
+    headers,
+):
     passkey_headers = {
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
@@ -516,9 +564,19 @@ def _perform_duo_universal_prompt_flow(
     authenticator_key = json_response["response"]["authn_evaluation"][
         "authenticator_key"
     ]
+    return authenticator_key, data, response, json_response
 
-    # (11)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+
+def _duo_flow_step_11(
+    duo_authkey,
+    parsed_url,
+    duo_akey,
+    authenticator_key,
+    duo_ikey,
+    duo_ukey,
+    session,
+    headers,
+):
     qs = {
         "authkey": duo_authkey,
     }
@@ -570,9 +628,19 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_11_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return data, response
 
-    # (12)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_events?authkey=AXV6JB3E1O1PJ77IMFEO
+
+def _duo_flow_step_12(
+    duo_authkey,
+    parsed_url,
+    duo_akey,
+    authenticator_key,
+    duo_ikey,
+    duo_ukey,
+    session,
+    headers,
+):
     qs = {
         "authkey": duo_authkey,
     }
@@ -626,8 +694,10 @@ def _perform_duo_universal_prompt_flow(
     response = session.post(duo_step_12_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
 
-    # (13)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/browser_trust
+    return data, response, qs, query
+
+
+def _duo_flow_step_13(parsed_url, duo_akey, duo_authkey, session, headers):
     duo_step_13_url = urlunparse(
         (
             parsed_url.scheme,
@@ -643,9 +713,10 @@ def _perform_duo_universal_prompt_flow(
     logger.debug(f"JSON payload:\n{json.dumps(data, indent=4)}")
     response = session.post(duo_step_13_url, json=data, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
+    return data, response
 
-    # (14) - Remember me
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/remember_me
+
+def _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session, headers):
     duo_step_14_url = urlunparse(
         (
             parsed_url.scheme,
@@ -664,9 +735,10 @@ def _perform_duo_universal_prompt_flow(
     jar = session.cookies
     for cname, cvalue in jar.items():
         logger.debug(f"COOKIE: {cname}: {cvalue}")
+    return response
 
-    # (15)
-    # https://api-6bfb7da1.duosecurity.com/prompt/DAC8TIBYEC3Q22PRKFW2/auth/finalize_auth?authkey=AXQMXEBIVKN6EMPSSGVS
+
+def _duo_flow_step_15_finalie_auth(duo_authkey, parsed_url, duo_akey, session, headers):
     qs = {
         "authkey": duo_authkey,
     }
@@ -681,12 +753,106 @@ def _perform_duo_universal_prompt_flow(
             "",
         )
     )
-    logger.debug(f"Duo flow URL 15: {duo_step_14_url}")
+    logger.debug(f"Duo flow URL 15: {duo_step_15_url}")
     response = session.get(duo_step_15_url, headers=headers)
     logger.debug(f"HTTP Response: {response.text}")
     json_response = response.json()
     exit_url = json_response["response"]["url"]
     logger.debug(f"DUO Exit URL: {exit_url}")
+    return exit_url, response
+
+
+def _perform_duo_universal_prompt_flow(
+    session, parsed_url, duo_akey, duo_authkey, duo_req_trace_group
+):
+    """
+    Perform the Duo Universal Prompt flow.
+    Returns the final response.
+    """
+    headers, response, data = _duo_flow_step_1(
+        duo_req_trace_group, duo_authkey, parsed_url, duo_akey, session
+    )
+
+    duo_ikey, duo_ukey, response, json_response = _duo_flow_step_2_browser_features(
+        duo_authkey, parsed_url, duo_akey, session, headers
+    )
+    response, data = _duo_flow_step_3(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+    )
+
+    response = _duo_flow_step_4_preauth_init(
+        duo_authkey, parsed_url, duo_akey, session, headers
+    )
+    data, response = _duo_flow_step_5(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+    )
+    response, data = _duo_flow_step_6(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+    )
+    response, browser_features, json_response = _duo_flow_step_7_available_factors(
+        duo_authkey, parsed_url, duo_akey, session, headers
+    )
+    response, data = _duo_flow_step_8(
+        duo_authkey, parsed_url, duo_akey, duo_ikey, duo_ukey, session, headers
+    )
+    credential_request_options, session_id, response, json_response = (
+        _duo_flow_step_9_passkey_init(
+            duo_authkey, parsed_url, duo_akey, session, headers
+        )
+    )
+    (
+        encoded_credential_id,
+        encoded_auth_data,
+        encoded_client_data_json,
+        encoded_signature,
+        jar,
+        cname,
+        cvalue,
+    ) = _present_challenge_to_authenticator(
+        parsed_url, credential_request_options, session
+    )
+    authenticator_key, data, response, json_response = (
+        _duo_flow_step_10_complete_webauthn(
+            duo_req_trace_group,
+            duo_authkey,
+            parsed_url,
+            duo_akey,
+            session_id,
+            encoded_credential_id,
+            encoded_auth_data,
+            encoded_client_data_json,
+            encoded_signature,
+            session,
+            headers,
+        )
+    )
+    data, response = _duo_flow_step_11(
+        duo_authkey,
+        parsed_url,
+        duo_akey,
+        authenticator_key,
+        duo_ikey,
+        duo_ukey,
+        session,
+        headers,
+    )
+    data, response, qs, query = _duo_flow_step_12(
+        duo_authkey,
+        parsed_url,
+        duo_akey,
+        authenticator_key,
+        duo_ikey,
+        duo_ukey,
+        session,
+        headers,
+    )
+    data, response = _duo_flow_step_13(
+        parsed_url, duo_akey, duo_authkey, session, headers
+    )
+    response = _duo_flow_step_14(parsed_url, duo_akey, duo_authkey, session, headers)
+    exit_url, response = _duo_flow_step_15_finalie_auth(
+        duo_authkey, parsed_url, duo_akey, session, headers
+    )
     response = session.get(exit_url)
     # device, device_key, factor = select_factor(duo_prompt_config)
     # if factor == DuoAuthnFactor.WEBAUTHN.value:
