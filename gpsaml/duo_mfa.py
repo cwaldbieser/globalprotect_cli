@@ -316,9 +316,9 @@ def _duo_flow_step_7_available_factors(duo_authkey, parsed_url, duo_akey, sessio
     response = session.get(duo_step_7_url, headers=headers)
     json_response = response.json()
     logger.debug(f"HTTP Response:\n{json.dumps(json_response, indent=4)}")
-    available_factors = json_response["response"]["available_unified_auth_factors"][
-        "factors"
-    ]
+    available_factors = json_response["response"]["auth_factors_context"][
+        "available_unified_auth_factors"
+    ]["factors"]
     push_devices = []
     for factor in available_factors:
         if factor.get("factor_type") == "push":
